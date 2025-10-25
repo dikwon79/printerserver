@@ -1,0 +1,3 @@
+([('LabelPrinter',
+   '/Users/dongil/Documents/Projects/inno/dist_windows/LabelPrinter',
+   'EXECUTABLE')],)

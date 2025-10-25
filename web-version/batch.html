@@ -1,0 +1,498 @@
+<!DOCTYPE html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>라벨 일괄 인쇄</title>
+    <style>
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+          sans-serif;
+        max-width: 600px;
+        margin: 0 auto;
+        padding: 20px;
+        background-color: #f5f5f5;
+      }
+      .container {
+        background: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        margin-bottom: 20px;
+      }
+      h1 {
+        text-align: center;
+        color: #333;
+        margin-bottom: 30px;
+      }
+      .form-group {
+        margin-bottom: 20px;
+      }
+      label {
+        display: block;
+        margin-bottom: 5px;
+        font-weight: 600;
+        color: #555;
+      }
+      input,
+      select {
+        width: 100%;
+        padding: 12px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        font-size: 16px;
+        box-sizing: border-box;
+      }
+      .display-field {
+        background-color: #f8f9fa;
+        color: #666;
+        padding: 12px;
+        border: 1px solid #e9ecef;
+        border-radius: 8px;
+        font-size: 16px;
+      }
+      .net-weight {
+        background-color: #e3f2fd;
+        color: #1976d2;
+        font-weight: bold;
+      }
+      button {
+        width: 100%;
+        padding: 15px;
+        background-color: #4caf50;
+        color: white;
+        border: none;
+        border-radius: 8px;
+        font-size: 16px;
+        font-weight: 600;
+        cursor: pointer;
+        margin-bottom: 10px;
+      }
+      button:hover {
+        background-color: #45a049;
+      }
+      button:disabled {
+        background-color: #cccccc;
+        cursor: not-allowed;
+      }
+      .add-btn {
+        background-color: #2196f3;
+      }
+      .add-btn:hover {
+        background-color: #1976d2;
+      }
+      .clear-btn {
+        background-color: #f44336;
+      }
+      .clear-btn:hover {
+        background-color: #da190b;
+      }
+      .status {
+        text-align: center;
+        padding: 10px;
+        border-radius: 8px;
+        margin-bottom: 20px;
+      }
+      .status.connected {
+        background-color: #d4edda;
+        color: #155724;
+        border: 1px solid #c3e6cb;
+      }
+      .status.disconnected {
+        background-color: #f8d7da;
+        color: #721c24;
+        border: 1px solid #f5c6cb;
+      }
+      .loading {
+        display: none;
+        text-align: center;
+        color: #666;
+      }
+      .label-list {
+        max-height: 300px;
+        overflow-y: auto;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+        padding: 10px;
+        background-color: #f8f9fa;
+      }
+      .label-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 10px;
+        margin-bottom: 10px;
+        background-color: white;
+        border-radius: 6px;
+        border: 1px solid #e9ecef;
+      }
+      .label-info {
+        flex: 1;
+      }
+      .label-text {
+        font-size: 14px;
+        color: #333;
+        margin-bottom: 2px;
+      }
+      .remove-btn {
+        background-color: #f44336;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        padding: 5px 10px;
+        cursor: pointer;
+        font-size: 12px;
+      }
+      .remove-btn:hover {
+        background-color: #da190b;
+      }
+      .empty-list {
+        text-align: center;
+        color: #666;
+        padding: 40px;
+      }
+      .nav {
+        text-align: center;
+        margin-bottom: 20px;
+      }
+      .nav a {
+        color: #4caf50;
+        text-decoration: none;
+        margin: 0 10px;
+        font-weight: 600;
+      }
+      .nav a:hover {
+        text-decoration: underline;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="nav">
+      <a href="index.html">단일 인쇄</a>
+      <a href="batch.html">일괄 인쇄</a>
+    </div>
+
+    <div class="container">
+      <h1>🏷️ 라벨 일괄 인쇄</h1>
+
+      <div
+        style="
+          margin-bottom: 20px;
+          padding: 10px;
+          background: #f8f9fa;
+          border-radius: 5px;
+        "
+      >
+        <span id="serverInfo">서버: http://10.0.0.208:8080</span>
+        <button
+          onclick="setServerIP()"
+          style="
+            margin-left: 10px;
+            padding: 5px 10px;
+            background: #4caf50;
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+          "
+        >
+          IP 변경
+        </button>
+      </div>
+
+      <div id="status" class="status disconnected">서버 연결 확인 중...</div>
+
+      <form id="addForm">
+        <div class="form-group">
+          <label for="totalWeight">총무게 (kg) *</label>
+          <input
+            type="number"
+            id="totalWeight"
+            step="0.01"
+            placeholder="총무게를 입력하세요"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label for="palletWeight">팔렛무게 (kg) *</label>
+          <input
+            type="number"
+            id="palletWeight"
+            step="0.01"
+            placeholder="팔렛무게를 입력하세요"
+            required
+          />
+        </div>
+
+        <div class="form-group">
+          <label>순수무게 (kg)</label>
+          <div id="netWeight" class="display-field net-weight">0.00 kg</div>
+        </div>
+
+        <button type="submit" class="add-btn">➕ 라벨 추가</button>
+      </form>
+    </div>
+
+    <div class="container">
+      <h2>인쇄 목록 (<span id="labelCount">0</span>개)</h2>
+
+      <div id="labelList" class="label-list">
+        <div class="empty-list">추가된 라벨이 없습니다.</div>
+      </div>
+
+      <button id="clearBtn" class="clear-btn" style="display: none">
+        🗑️ 전체 삭제
+      </button>
+    </div>
+
+    <div class="container">
+      <div class="form-group">
+        <label for="printer">프린터 선택 *</label>
+        <select id="printer" required>
+          <option value="">프린터를 선택하세요</option>
+          <option value="기본 프린터">기본 프린터</option>
+        </select>
+      </div>
+
+      <button id="printBtn" class="print-btn" disabled>🖨️ 전체 인쇄</button>
+      <div id="loading" class="loading">인쇄 중...</div>
+    </div>
+
+    <script>
+      // 서버 설정
+      let SERVER_URL = "http://10.0.0.208:8080";
+
+      // IP 설정 함수
+      function setServerIP() {
+        const ip = prompt(
+          "서버 IP 주소를 입력하세요 (예: 192.168.1.100):",
+          "10.0.0.208"
+        );
+        if (ip) {
+          SERVER_URL = `http://${ip}:8080`;
+          document.getElementById(
+            "serverInfo"
+          ).textContent = `서버: ${SERVER_URL}`;
+          loadPrinters(); // 프린터 목록 다시 로드
+        }
+      }
+
+      // 전역 변수
+      let labels = [];
+
+      // DOM 요소
+      const totalWeightInput = document.getElementById("totalWeight");
+      const palletWeightInput = document.getElementById("palletWeight");
+      const netWeightDisplay = document.getElementById("netWeight");
+      const printerSelect = document.getElementById("printer");
+      const addForm = document.getElementById("addForm");
+      const labelList = document.getElementById("labelList");
+      const labelCount = document.getElementById("labelCount");
+      const printBtn = document.getElementById("printBtn");
+      const clearBtn = document.getElementById("clearBtn");
+      const statusDiv = document.getElementById("status");
+      const loadingDiv = document.getElementById("loading");
+
+      // 순수무게 자동 계산
+      function calculateNetWeight() {
+        const total = parseFloat(totalWeightInput.value) || 0;
+        const pallet = parseFloat(palletWeightInput.value) || 0;
+        const net = total - pallet;
+        netWeightDisplay.textContent =
+          net > 0 ? net.toFixed(2) + " kg" : "0.00 kg";
+      }
+
+      totalWeightInput.addEventListener("input", calculateNetWeight);
+      palletWeightInput.addEventListener("input", calculateNetWeight);
+
+      // 서버 상태 확인
+      async function checkServerStatus() {
+        try {
+          const response = await fetch(`${SERVER_URL}/api/status`);
+          if (response.ok) {
+            statusDiv.textContent = "✅ 서버 연결됨";
+            statusDiv.className = "status connected";
+            return true;
+          } else {
+            throw new Error("서버 응답 오류");
+          }
+        } catch (error) {
+          statusDiv.textContent = "❌ 서버 연결 실패";
+          statusDiv.className = "status disconnected";
+          return false;
+        }
+      }
+
+      // 프린터 목록 가져오기
+      async function loadPrinters() {
+        try {
+          const response = await fetch(`${SERVER_URL}/api/printers`);
+          if (response.ok) {
+            const data = await response.json();
+            printerSelect.innerHTML =
+              '<option value="">프린터를 선택하세요</option>';
+
+            data.printers.forEach((printer) => {
+              const option = document.createElement("option");
+              option.value = printer.name;
+              option.textContent =
+                printer.name + (printer.status ? ` (${printer.status})` : "");
+              printerSelect.appendChild(option);
+            });
+          }
+        } catch (error) {
+          console.log("프린터 목록을 가져올 수 없습니다:", error);
+        }
+      }
+
+      // 라벨 추가
+      function addLabel(event) {
+        event.preventDefault();
+
+        const totalWeight = totalWeightInput.value;
+        const palletWeight = palletWeightInput.value;
+
+        if (!totalWeight || !palletWeight) {
+          alert("총무게와 팔렛무게를 모두 입력해주세요.");
+          return;
+        }
+
+        const netWeight = parseFloat(totalWeight) - parseFloat(palletWeight);
+        if (netWeight <= 0) {
+          alert("팔렛무게는 총무게보다 작아야 합니다.");
+          return;
+        }
+
+        const newLabel = {
+          id: Date.now(),
+          totalWeight: totalWeight,
+          palletWeight: palletWeight,
+          netWeight: netWeight,
+        };
+
+        labels.push(newLabel);
+        updateLabelList();
+        resetAddForm();
+      }
+
+      // 라벨 삭제
+      function removeLabel(id) {
+        labels = labels.filter((label) => label.id !== id);
+        updateLabelList();
+      }
+
+      // 라벨 목록 업데이트
+      function updateLabelList() {
+        labelCount.textContent = labels.length;
+
+        if (labels.length === 0) {
+          labelList.innerHTML =
+            '<div class="empty-list">추가된 라벨이 없습니다.</div>';
+          clearBtn.style.display = "none";
+          printBtn.disabled = true;
+        } else {
+          labelList.innerHTML = labels
+            .map(
+              (label) => `
+            <div class="label-item">
+              <div class="label-info">
+                <div class="label-text">총무게: ${label.totalWeight}kg</div>
+                <div class="label-text">팔렛무게: ${label.palletWeight}kg</div>
+                <div class="label-text">순수무게: ${label.netWeight.toFixed(
+                  2
+                )}kg</div>
+              </div>
+              <button class="remove-btn" onclick="removeLabel(${
+                label.id
+              })">삭제</button>
+            </div>
+          `
+            )
+            .join("");
+          clearBtn.style.display = "block";
+          printBtn.disabled = !printerSelect.value;
+        }
+      }
+
+      // 추가 폼 초기화
+      function resetAddForm() {
+        totalWeightInput.value = "";
+        palletWeightInput.value = "";
+        netWeightDisplay.textContent = "0.00 kg";
+      }
+
+      // 전체 삭제
+      function clearAllLabels() {
+        if (labels.length === 0) return;
+
+        if (confirm("모든 라벨을 삭제하시겠습니까?")) {
+          labels = [];
+          updateLabelList();
+        }
+      }
+
+      // 전체 인쇄
+      async function printAllLabels() {
+        if (labels.length === 0) {
+          alert("인쇄할 라벨이 없습니다.");
+          return;
+        }
+
+        if (!printerSelect.value) {
+          alert("프린터를 선택해주세요.");
+          return;
+        }
+
+        printBtn.disabled = true;
+        loadingDiv.style.display = "block";
+
+        try {
+          for (let i = 0; i < labels.length; i++) {
+            const label = labels[i];
+            const response = await fetch(`${SERVER_URL}/api/print`, {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                total_weight: label.totalWeight,
+                pallet_weight: label.palletWeight,
+                printer: printerSelect.value,
+              }),
+            });
+
+            const result = await response.json();
+
+            if (!result.success) {
+              alert(`라벨 인쇄 실패: ${result.message}`);
+              return;
+            }
+          }
+
+          alert(`✅ ${labels.length}개의 라벨이 성공적으로 인쇄되었습니다!`);
+          labels = [];
+          updateLabelList();
+        } catch (error) {
+          alert("❌ 서버 연결 오류: " + error.message);
+        } finally {
+          printBtn.disabled = false;
+          loadingDiv.style.display = "none";
+        }
+      }
+
+      // 이벤트 리스너
+      addForm.addEventListener("submit", addLabel);
+      clearBtn.addEventListener("click", clearAllLabels);
+      printBtn.addEventListener("click", printAllLabels);
+      printerSelect.addEventListener("change", () => {
+        printBtn.disabled = !printerSelect.value || labels.length === 0;
+      });
+
+      // 초기화
+      checkServerStatus();
+      loadPrinters();
+      setInterval(checkServerStatus, 30000); // 30초마다 서버 상태 확인
+    </script>
+  </body>
+</html>
