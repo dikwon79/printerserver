@@ -95,7 +95,7 @@ class LabelPrinter:
                 if printer_name:
                     print(f"Windows 인쇄 시도 - 프린터: {printer_name}")
                     
-                    # 방법 1: Adobe Reader를 사용하여 특정 프린터로 인쇄
+                    # Adobe Reader를 사용하여 특정 프린터로 인쇄
                     try:
                         adobe_command = f"""
                         $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
@@ -107,7 +107,7 @@ class LabelPrinter:
                             Start-Process -FilePath $adobePath -ArgumentList "/t", "{pdf_path}", "{printer_name}" -WindowStyle Hidden -Wait
                             Write-Host "Adobe Reader print completed"
                         }} else {{
-                            Write-Host "Adobe Reader not found, trying alternative method"
+                            Write-Host "Adobe Reader not found"
                             exit 1
                         }}
                         """
@@ -121,103 +121,12 @@ class LabelPrinter:
                             return True
                         else:
                             print(f"Adobe Reader 실패: {result.stderr}")
+                            logger.error(f"프린터 '{printer_name}'로 인쇄 실패")
+                            return False
                     except Exception as e:
                         print(f"Adobe Reader 오류: {e}")
-                    
-                    # 방법 2: 기본 프린터를 임시로 변경하여 인쇄
-                    print("Adobe Reader 실패, 기본 프린터 임시 변경 방법 시도...")
-                    try:
-                        # 현재 기본 프린터 저장
-                        get_default_command = "Get-Printer | Where-Object {$_.IsDefault -eq $true} | Select-Object -ExpandProperty Name"
-                        default_result = subprocess.run([
-                            'powershell', '-Command', get_default_command
-                        ], capture_output=True, text=True, timeout=10)
-                        
-                        original_default = default_result.stdout.strip() if default_result.returncode == 0 else None
-                        print(f"현재 기본 프린터: {original_default}")
-                        
-                        # 방법 2-1: PowerShell Set-Printer 사용
-                        set_default_command = f"$printer = Get-Printer -Name '{printer_name}'; $printer | Set-Printer -AsDefault"
-                        set_result = subprocess.run([
-                            'powershell', '-Command', set_default_command
-                        ], capture_output=True, text=True, timeout=10)
-                        
-                        if set_result.returncode == 0:
-                            print(f"기본 프린터를 '{printer_name}'로 변경 성공")
-                            
-                            # PDF 인쇄
-                            os.startfile(pdf_path, "print")
-                            
-                            # 잠시 대기 후 원래 기본 프린터로 복원
-                            import time
-                            time.sleep(2)
-                            
-                            if original_default:
-                                restore_command = f"$printer = Get-Printer -Name '{original_default}'; $printer | Set-Printer -AsDefault"
-                                restore_result = subprocess.run([
-                                    'powershell', '-Command', restore_command
-                                ], capture_output=True, text=True, timeout=10)
-                                print(f"기본 프린터 복원: {restore_result.returncode}")
-                            
-                            logger.info(f"프린터 '{printer_name}'로 인쇄 완료")
-                            return True
-                        else:
-                            print(f"PowerShell Set-Printer 실패: {set_result.stderr}")
-                            
-                            # 방법 2-2: WMI를 사용한 기본 프린터 변경
-                            print("WMI 방법으로 기본 프린터 변경 시도...")
-                            wmi_command = f"""
-                            $printer = Get-WmiObject -Class Win32_Printer -Filter "Name='{printer_name}'"
-                            if ($printer) {{
-                                $printer.SetDefaultPrinter()
-                                Write-Host "WMI로 기본 프린터 변경 성공"
-                            }} else {{
-                                Write-Error "프린터를 찾을 수 없습니다"
-                                exit 1
-                            }}
-                            """
-                            
-                            wmi_result = subprocess.run([
-                                'powershell', '-Command', wmi_command
-                            ], capture_output=True, text=True, timeout=10)
-                            
-                            if wmi_result.returncode == 0:
-                                print("WMI로 기본 프린터 변경 성공")
-                                
-                                # PDF 인쇄
-                                os.startfile(pdf_path, "print")
-                                
-                                # 잠시 대기 후 원래 기본 프린터로 복원
-                                import time
-                                time.sleep(2)
-                                
-                                if original_default:
-                                    restore_wmi_command = f"""
-                                    $printer = Get-WmiObject -Class Win32_Printer -Filter "Name='{original_default}'"
-                                    if ($printer) {{
-                                        $printer.SetDefaultPrinter()
-                                        Write-Host "WMI로 기본 프린터 복원 성공"
-                                    }}
-                                    """
-                                    restore_wmi_result = subprocess.run([
-                                        'powershell', '-Command', restore_wmi_command
-                                    ], capture_output=True, text=True, timeout=10)
-                                    print(f"WMI 기본 프린터 복원: {restore_wmi_result.returncode}")
-                                
-                                logger.info(f"프린터 '{printer_name}'로 인쇄 완료")
-                                return True
-                            else:
-                                print(f"WMI 방법도 실패: {wmi_result.stderr}")
-                                logger.error(f"프린터 '{printer_name}' 설정 실패")
-                                return False
-                            
-                    except Exception as e:
-                        logger.error(f"기본 프린터 변경 실패: {e}")
+                        logger.error(f"프린터 '{printer_name}'로 인쇄 실패: {e}")
                         return False
-                    
-                    # 모든 방법 실패 시
-                    logger.error(f"프린터 '{printer_name}'로 인쇄할 수 없습니다")
-                    return False
                 else:
                     # 기본 프린터로 인쇄
                     os.startfile(pdf_path, "print")
