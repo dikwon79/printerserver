@@ -112,47 +112,67 @@ class LabelPrinter:
             return False
     
     def print_simple_pdf(self, pdf_path, printer_name):
-        """간단한 PDF 인쇄 방법"""
+        """선택된 프린터로 PDF 인쇄"""
         try:
-            # 방법 1: 기본 PDF 뷰어로 인쇄 (가장 안정적)
-            print(f"기본 PDF 뷰어로 인쇄 시도... (선택된 프린터: {printer_name})")
-            print("참고: 기본 PDF 뷰어는 기본 프린터로만 인쇄됩니다.")
-            print("특정 프린터로 인쇄하려면 인쇄 대화상자에서 프린터를 선택해주세요.")
-            
-            os.startfile(pdf_path, "print")
-            logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"기본 PDF 인쇄 실패: {e}")
-            
-            # 방법 2: PowerShell을 사용한 간단한 인쇄
-            try:
-                print("PowerShell로 인쇄 시도...")
-                ps_command = f"""
-                try {{
-                    # PDF 파일을 기본 PDF 뷰어로 열고 인쇄
-                    Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden
-                    Write-Host "PDF 인쇄 명령 실행 완료"
-                }} catch {{
-                    Write-Error "인쇄 실패: $($_.Exception.Message)"
-                    exit 1
-                }}
-                """
-                
-                result = subprocess.run([
-                    'powershell', '-Command', ps_command
-                ], capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0:
-                    logger.info(f"PowerShell로 PDF 인쇄 성공: {pdf_path}")
-                    return True
-                else:
-                    print(f"PowerShell 인쇄 실패: {result.stderr}")
-                    return False
+            # 방법 1: PowerShell을 사용하여 특정 프린터로 인쇄
+            print(f"PowerShell로 프린터 '{printer_name}' 인쇄 시도...")
+            ps_command = f"""
+            try {{
+                # PDF 파일을 특정 프린터로 인쇄
+                $printer = Get-Printer -Name '{printer_name}' -ErrorAction SilentlyContinue
+                if ($printer) {{
+                    Write-Host "프린터 찾음: $($printer.Name)"
                     
-            except Exception as e:
-                logger.error(f"PowerShell 인쇄 오류: {e}")
+                    # 방법 1: Adobe Reader로 특정 프린터 인쇄
+                    $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
+                    if ($adobePath) {{
+                        Write-Host "Adobe Reader로 인쇄 시도: $adobePath"
+                        Start-Process -FilePath $adobePath -ArgumentList "/t", "{pdf_path}", "{printer_name}" -WindowStyle Hidden -Wait
+                        Write-Host "Adobe Reader 인쇄 완료"
+                    }} else {{
+                        Write-Host "Adobe Reader 없음, 기본 방법 시도"
+                        # 기본 방법으로 인쇄
+                        Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden
+                        Write-Host "기본 방법으로 인쇄 완료"
+                    }}
+                }} else {{
+                    Write-Host "프린터를 찾을 수 없음: {printer_name}"
+                    # 프린터가 없으면 기본 방법으로 인쇄
+                    Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden
+                    Write-Host "기본 프린터로 인쇄 완료"
+                }}
+            }} catch {{
+                Write-Error "인쇄 실패: $($_.Exception.Message)"
+                exit 1
+            }}
+            """
+            
+            result = subprocess.run([
+                'powershell', '-Command', ps_command
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                logger.info(f"PowerShell로 프린터 '{printer_name}' 인쇄 성공")
+                return True
+            else:
+                print(f"PowerShell 인쇄 실패: {result.stderr}")
+                
+                # 방법 2: 기본 PDF 뷰어로 인쇄 (백업)
+                print("PowerShell 실패, 기본 PDF 뷰어로 인쇄 시도...")
+                os.startfile(pdf_path, "print")
+                logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"PDF 인쇄 실패: {e}")
+            
+            # 최후의 수단: 기본 PDF 뷰어로 인쇄
+            try:
+                os.startfile(pdf_path, "print")
+                logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
+                return True
+            except Exception as e2:
+                logger.error(f"기본 인쇄도 실패: {e2}")
                 return False
     
     def print_zpl_label(self, pdf_path, printer_name, label_data=None):
@@ -620,6 +640,8 @@ class LabelPrinterGUI:
                 # 프린터 타입에 따른 메시지
                 if actual_printer_name and ('ZT230' in actual_printer_name or 'ZDesigner' in actual_printer_name or 'Zebra' in actual_printer_name):
                     messagebox.showinfo("성공", f"Zebra 프린터 '{actual_printer_name}'로 라벨이 성공적으로 인쇄되었습니다.")
+                elif actual_printer_name:
+                    messagebox.showinfo("성공", f"프린터 '{actual_printer_name}'로 라벨이 성공적으로 인쇄되었습니다.")
                 else:
                     messagebox.showinfo("성공", "라벨이 성공적으로 인쇄되었습니다.\n(기본 프린터로 인쇄됨)")
             else:
