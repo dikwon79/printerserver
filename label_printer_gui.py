@@ -125,9 +125,8 @@ class LabelPrinter:
                         print(f"Adobe Reader 오류: {e}")
                     
                     # 방법 2: 기본 프린터를 임시로 변경하여 인쇄
+                    print("Adobe Reader 실패, 기본 프린터 임시 변경 방법 시도...")
                     try:
-                        print("기본 프린터 임시 변경 시도...")
-                        
                         # 현재 기본 프린터 저장
                         get_default_command = "Get-Printer | Where-Object {$_.IsDefault -eq $true} | Select-Object -ExpandProperty Name"
                         default_result = subprocess.run([
@@ -164,15 +163,16 @@ class LabelPrinter:
                             return True
                         else:
                             print(f"기본 프린터 변경 실패: {set_result.stderr}")
-                            # 실패 시 기본 방법으로 인쇄
-                            os.startfile(pdf_path, "print")
-                            return True
+                            logger.error(f"프린터 '{printer_name}' 설정 실패")
+                            return False
                             
                     except Exception as e:
                         logger.error(f"기본 프린터 변경 실패: {e}")
-                        # 최후의 수단: 기본 프린터로 인쇄
-                        os.startfile(pdf_path, "print")
-                        return True
+                        return False
+                    
+                    # 모든 방법 실패 시
+                    logger.error(f"프린터 '{printer_name}'로 인쇄할 수 없습니다")
+                    return False
                 else:
                     # 기본 프린터로 인쇄
                     os.startfile(pdf_path, "print")
