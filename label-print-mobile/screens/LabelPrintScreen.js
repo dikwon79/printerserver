@@ -10,6 +10,7 @@ import {
   ActivityIndicator,
   Modal,
 } from "react-native";
+import { Picker } from "@react-native-picker/picker";
 import LabelPrintService from "../services/LabelPrintService";
 
 const LabelPrintScreen = () => {
@@ -47,12 +48,20 @@ const LabelPrintScreen = () => {
 
   // 프린터 목록 로드
   const loadPrinters = async () => {
+    console.log("🔄 프린터 목록 로딩 시작...");
     const result = await LabelPrintService.getPrinters();
+    console.log("📱 프린터 목록 API 응답:", result);
+
     if (result.success) {
+      console.log("✅ 받은 프린터 목록:", result.printers);
+      console.log("📊 프린터 배열 길이:", result.printers.length);
       setPrinters(result.printers);
       if (result.printers.length > 0 && !selectedPrinter) {
+        console.log("🎯 첫 번째 프린터 선택:", result.printers[0].name);
         setSelectedPrinter(result.printers[0].name);
       }
+    } else {
+      console.log("❌ 프린터 목록 로딩 실패:", result.message);
     }
   };
 
@@ -129,11 +138,16 @@ const LabelPrintScreen = () => {
     setLoading(true);
 
     try {
-      const result = await LabelPrintService.printLabel({
+      const printData = {
         totalWeight: totalWeight,
         palletWeight: palletWeight,
         printer: selectedPrinter,
-      });
+      };
+
+      console.log("🎯 인쇄 요청 - 선택된 프린터:", selectedPrinter);
+      console.log("🎯 인쇄 요청 - 전체 데이터:", printData);
+
+      const result = await LabelPrintService.printLabel(printData);
 
       if (result.success) {
         Alert.alert("성공", result.message);
@@ -263,28 +277,35 @@ const LabelPrintScreen = () => {
         </View>
 
         <View style={styles.inputGroup}>
-          <Text style={styles.label}>프린터 선택 *</Text>
-          <View style={styles.printerContainer}>
-            {printers.map((printer, index) => (
-              <TouchableOpacity
-                key={index}
-                style={[
-                  styles.printerOption,
-                  selectedPrinter === printer.name && styles.printerSelected,
-                ]}
-                onPress={() => setSelectedPrinter(printer.name)}
-              >
-                <Text
-                  style={[
-                    styles.printerText,
-                    selectedPrinter === printer.name &&
-                      styles.printerTextSelected,
-                  ]}
-                >
-                  {printer.name} {printer.status && `(${printer.status})`}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          <View style={styles.printerHeader}>
+            <Text style={styles.label}>프린터 선택 *</Text>
+            <TouchableOpacity style={styles.refreshButton} onPress={loadPrinters}>
+              <Text style={styles.refreshButtonText}>🔄 새로고침</Text>
+            </TouchableOpacity>
+          </View>
+          
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={selectedPrinter}
+              onValueChange={(itemValue) => {
+                console.log("🎯 프린터 선택 변경:", itemValue);
+                setSelectedPrinter(itemValue);
+              }}
+              style={styles.picker}
+              itemStyle={styles.pickerItem}
+            >
+              {printers.length === 0 ? (
+                <Picker.Item label="프린터를 불러오는 중..." value="" />
+              ) : (
+                printers.map((printer, index) => (
+                  <Picker.Item
+                    key={index}
+                    label={`${printer.name} (${printer.status})`}
+                    value={printer.name}
+                  />
+                ))
+              )}
+            </Picker>
           </View>
         </View>
 
@@ -691,6 +712,36 @@ const styles = StyleSheet.create({
     borderRadius: 6,
   },
   removeButtonText: {
+    color: "white",
+    fontSize: 12,
+    fontWeight: "600",
+  },
+  pickerContainer: {
+    backgroundColor: "white",
+    borderWidth: 1,
+    borderColor: "#ddd",
+    borderRadius: 8,
+    marginTop: 8,
+  },
+  picker: {
+    height: 50,
+  },
+  pickerItem: {
+    fontSize: 16,
+  },
+  printerHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  refreshButton: {
+    backgroundColor: "#2196F3",
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 5,
+  },
+  refreshButtonText: {
     color: "white",
     fontSize: 12,
     fontWeight: "600",

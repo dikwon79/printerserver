@@ -663,7 +663,15 @@ class LabelPrinterGUI:
                 
                 # 실제 프린터 이름 가져오기
                 display_name = data.get('printer', '기본 프린터')
-                actual_printer_name = self.printer_names.get(display_name, None)
+                
+                # API에서는 프린터 이름을 직접 사용 (GUI의 매핑 없이)
+                if display_name == '기본 프린터' or display_name == 'default':
+                    actual_printer_name = None  # 기본 프린터 사용
+                else:
+                    actual_printer_name = display_name  # 프린터 이름 직접 사용
+                
+                print(f"API 인쇄 - 선택된 프린터: {display_name}")
+                print(f"API 인쇄 - 실제 프린터명: {actual_printer_name}")
                 
                 # 인쇄 실행
                 success = self.printer.print_label(pdf_path, actual_printer_name)
@@ -700,7 +708,10 @@ class LabelPrinterGUI:
         @app.route('/api/printers', methods=['GET'])
         def list_printers():
             try:
-                if os.name == 'posix':
+                # Windows 테스트를 위해 강제로 Windows 경로 사용
+                force_windows = request.args.get('force_windows', 'false').lower() == 'true'
+                
+                if os.name == 'posix' and not force_windows:
                     result = subprocess.run(['lpstat', '-p'], capture_output=True, text=True)
                     if result.returncode == 0:
                         printers = []
@@ -728,6 +739,8 @@ class LabelPrinterGUI:
                             'powershell', '-Command', ps_command
                         ], capture_output=True, text=True, timeout=10)
                         
+                        print(f"PowerShell 결과: {result.returncode}, 출력: {result.stdout}")
+                        
                         if result.returncode == 0 and result.stdout.strip():
                             printer_names = result.stdout.strip().split('\n')
                             for printer_name in printer_names:
@@ -741,9 +754,12 @@ class LabelPrinterGUI:
                         
                         # 방법 2: wmic 명령어로도 시도
                         if not printers:
+                            print("PowerShell 실패, WMIC 시도 중...")
                             wmic_result = subprocess.run([
                                 'wmic', 'printer', 'get', 'name', '/format:list'
                             ], capture_output=True, text=True, timeout=10)
+                            
+                            print(f"WMIC 결과: {wmic_result.returncode}, 출력: {wmic_result.stdout}")
                             
                             if wmic_result.returncode == 0:
                                 for line in wmic_result.stdout.split('\n'):
@@ -756,8 +772,31 @@ class LabelPrinterGUI:
                                                 'description': f'프린터 {printer_name}'
                                             })
                         
+                        # 방법 3: 레지스트리에서 프린터 목록 조회 (Windows 전용)
+                        if not printers:
+                            print("WMIC 실패, 레지스트리 시도 중...")
+                            try:
+                                import winreg
+                                key = winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Print\Printers")
+                                i = 0
+                                while True:
+                                    try:
+                                        printer_name = winreg.EnumKey(key, i)
+                                        printers.append({
+                                            'name': printer_name,
+                                            'status': 'available',
+                                            'description': f'프린터 {printer_name}'
+                                        })
+                                        i += 1
+                                    except WindowsError:
+                                        break
+                                winreg.CloseKey(key)
+                            except ImportError:
+                                print("winreg 모듈을 사용할 수 없습니다 (Windows가 아님)")
+                        
                         # 프린터가 없으면 기본 프린터 추가
                         if not printers:
+                            print("모든 방법 실패, 기본 프린터 추가")
                             printers.append({
                                 'name': 'default',
                                 'status': 'available',
@@ -772,6 +811,7 @@ class LabelPrinterGUI:
                             'description': '기본 프린터'
                         })
                     
+                    print(f"최종 프린터 목록: {printers}")
                     return jsonify({'success': True, 'printers': printers})
             except Exception as e:
                 return jsonify({
