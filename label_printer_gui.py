@@ -109,29 +109,70 @@ class LabelPrinter:
         try:
             import win32print
             
+            print(f"=== 프린터 인쇄 디버깅 ===")
+            print(f"요청된 프린터: {printer_name}")
+            print(f"PDF 파일 경로: {pdf_path}")
+            
+            # 사용 가능한 프린터 목록 확인
+            printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
+            printer_names = [printer[2] for printer in printers]
+            print(f"시스템에 설치된 프린터 목록: {printer_names}")
+            
             # 현재 기본 프린터 저장
             original_default = win32print.GetDefaultPrinter()
             print(f"현재 기본 프린터: {original_default}")
             
+            # 프린터 존재 여부 확인
+            if printer_name not in printer_names:
+                print(f"❌ 프린터 '{printer_name}'를 찾을 수 없습니다!")
+                print(f"사용 가능한 프린터: {printer_names}")
+                
+                # 가장 비슷한 프린터 찾기
+                similar_printers = [p for p in printer_names if printer_name.lower() in p.lower() or p.lower() in printer_name.lower()]
+                if similar_printers:
+                    print(f"비슷한 프린터 발견: {similar_printers}")
+                    printer_name = similar_printers[0]
+                    print(f"프린터를 '{printer_name}'로 변경하여 시도합니다.")
+                else:
+                    print("기본 프린터로 인쇄합니다.")
+                    os.startfile(pdf_path, 'print')
+                    return True
+            
             # 선택된 프린터를 기본 프린터로 임시 변경
-            win32print.SetDefaultPrinter(printer_name)
-            print(f"기본 프린터를 '{printer_name}'로 임시 변경")
+            try:
+                win32print.SetDefaultPrinter(printer_name)
+                print(f"✅ 기본 프린터를 '{printer_name}'로 임시 변경 성공")
+                
+                # 변경 확인
+                current_default = win32print.GetDefaultPrinter()
+                print(f"변경 후 기본 프린터: {current_default}")
+                
+            except Exception as e:
+                print(f"❌ 기본 프린터 변경 실패: {e}")
+                print("기본 프린터로 인쇄합니다.")
+                os.startfile(pdf_path, 'print')
+                return True
             
             # PDF 인쇄
+            print("PDF 인쇄 시작...")
             os.startfile(pdf_path, 'print')
             print(f"✅ PDF가 프린터로 전송되었습니다: {printer_name}")
             
             # 잠시 대기 후 원래 기본 프린터로 복원
             import time
-            time.sleep(2)
-            win32print.SetDefaultPrinter(original_default)
-            print(f"기본 프린터 복원: {original_default}")
+            time.sleep(3)  # 인쇄 시간을 고려하여 3초로 증가
+            
+            try:
+                win32print.SetDefaultPrinter(original_default)
+                print(f"✅ 기본 프린터 복원 성공: {original_default}")
+            except Exception as e:
+                print(f"⚠️ 기본 프린터 복원 실패: {e}")
             
             logger.info(f"프린터 '{printer_name}'로 PDF 인쇄 성공")
             return True
             
         except ImportError:
-            print("win32print 모듈이 없습니다. pip install pywin32로 설치해주세요.")
+            print("❌ win32print 모듈이 없습니다. pip install pywin32로 설치해주세요.")
             # win32print가 없으면 기본 방법으로 인쇄
             os.startfile(pdf_path, "print")
             logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
@@ -139,9 +180,11 @@ class LabelPrinter:
             
         except Exception as e:
             logger.error(f"PDF 인쇄 실패: {e}")
+            print(f"❌ 인쇄 중 오류 발생: {e}")
             
             # 오류 발생 시 기본 방법으로 인쇄
             try:
+                print("기본 방법으로 인쇄 시도...")
                 os.startfile(pdf_path, "print")
                 logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
                 return True
@@ -520,8 +563,25 @@ class LabelPrinterGUI:
                     printer_list.append("기본 프린터")
                     self.printer_names["기본 프린터"] = None
             else:
-                # Windows의 경우 - 여러 방법으로 프린터 목록 조회
+                # Windows의 경우 - win32print를 사용하여 프린터 목록 조회
                 try:
+                    import win32print
+                    
+                    # win32print로 프린터 목록 조회
+                    printers = win32print.EnumPrinters(win32print.PRINTER_ENUM_LOCAL | win32print.PRINTER_ENUM_CONNECTIONS)
+                    
+                    for printer in printers:
+                        printer_name = printer[2]  # 프린터 이름
+                        if printer_name:
+                            display_name = f"{printer_name} (사용 가능)"
+                            printer_list.append(display_name)
+                            self.printer_names[display_name] = printer_name
+                    
+                    print(f"win32print로 발견된 프린터: {[p[2] for p in printers]}")
+                    
+                except ImportError:
+                    print("win32print 모듈이 없습니다. PowerShell로 프린터 목록 조회...")
+                    
                     # 방법 1: PowerShell로 프린터 목록 조회
                     ps_command = "Get-Printer | ForEach-Object { $_.Name }"
                     result = subprocess.run([
@@ -551,9 +611,9 @@ class LabelPrinterGUI:
                                         display_name = f"{printer_name} (사용 가능)"
                                         printer_list.append(display_name)
                                         self.printer_names[display_name] = printer_name
-                    
-                    # 프린터가 없으면 기본 프린터 추가
-                    if not printer_list:
+                
+                # 프린터가 없으면 기본 프린터 추가
+                if not printer_list:
                         printer_list.append("기본 프린터")
                         self.printer_names["기본 프린터"] = None
                         
