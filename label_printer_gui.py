@@ -171,23 +171,10 @@ class LabelPrinter:
                 os.startfile(pdf_path, 'print')
                 return True
             
-            # PDF 인쇄 - 더 확실한 방법 사용
+            # PDF 인쇄 - 기본 프린터 변경 후 인쇄
             print("PDF 인쇄 시작...")
-            
-            # 방법 1: win32api를 사용하여 직접 프린터로 전송
-            try:
-                import win32api
-                print(f"win32api로 프린터 '{printer_name}'에 직접 전송 시도...")
-                win32api.ShellExecute(0, "print", pdf_path, f'/d:"{printer_name}"', ".", 0)
-                print(f"✅ win32api로 PDF가 프린터로 전송되었습니다: {printer_name}")
-            except ImportError:
-                print("win32api 없음, 기본 방법 사용...")
-                os.startfile(pdf_path, 'print')
-                print(f"✅ PDF가 기본 프린터로 전송되었습니다")
-            except Exception as e:
-                print(f"win32api 실패: {e}, 기본 방법 사용...")
-                os.startfile(pdf_path, 'print')
-                print(f"✅ PDF가 기본 프린터로 전송되었습니다")
+            os.startfile(pdf_path, 'print')
+            print(f"✅ PDF가 프린터로 전송되었습니다: {printer_name}")
             
             # 잠시 대기 후 원래 기본 프린터로 복원
             import time
@@ -647,8 +634,11 @@ class LabelPrinterGUI:
                 if not printer_list:
                         printer_list.append("기본 프린터")
                         self.printer_names["기본 프린터"] = None
-                
-                print(f"win32print로 발견된 프린터: {printer_list}")
+                        
+                except Exception as e:
+                    print(f"Windows 프린터 조회 오류: {e}")
+                    printer_list.append("기본 프린터")
+                    self.printer_names["기본 프린터"] = None
                 
         except Exception as e:
             printer_list.append("기본 프린터")
