@@ -74,7 +74,7 @@ class LabelPrinter:
         c.save()
         return pdf_path
     
-    def print_label(self, pdf_path, printer_name=None):
+    def print_label(self, pdf_path, printer_name=None, label_data=None):
         """라벨 인쇄"""
         try:
             # CUPS를 통한 인쇄 (Linux/macOS)
@@ -91,48 +91,17 @@ class LabelPrinter:
                     logger.error(f"인쇄 실패: {result.stderr}")
                     return False
             else:
-                # Windows의 경우 - 특정 프린터로 인쇄
+                # Windows의 경우 - 프린터 타입에 따라 다른 방법 사용
                 if printer_name:
                     print(f"Windows 인쇄 시도 - 프린터: {printer_name}")
                     
-                    # 방법 1: Adobe Reader를 사용하여 특정 프린터로 인쇄
-                    try:
-                        adobe_command = f"""
-                        $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
-                        if (-not $adobePath) {{
-                            $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
-                        }}
-                        if ($adobePath) {{
-                            Write-Host "Using Adobe Reader: $adobePath"
-                            Start-Process -FilePath $adobePath -ArgumentList "/t", "{pdf_path}", "{printer_name}" -WindowStyle Hidden -Wait
-                            Write-Host "Adobe Reader print completed"
-                        }} else {{
-                            Write-Host "Adobe Reader not found"
-                            exit 1
-                        }}
-                        """
-                        
-                        result = subprocess.run([
-                            'powershell', '-Command', adobe_command
-                        ], capture_output=True, text=True, timeout=30)
-                        
-                        if result.returncode == 0:
-                            logger.info(f"Adobe Reader로 프린터 '{printer_name}' 인쇄 성공")
-                            return True
-                        else:
-                            print(f"Adobe Reader 실패: {result.stderr}")
-                    except Exception as e:
-                        print(f"Adobe Reader 오류: {e}")
-                    
-                    # 방법 2: 기본 PDF 뷰어로 인쇄
-                    print("Adobe Reader 실패, 기본 PDF 뷰어로 인쇄 시도...")
-                    try:
-                        os.startfile(pdf_path, "print")
-                        logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
-                        return True
-                    except Exception as e:
-                        logger.error(f"기본 인쇄 실패: {e}")
-                        return False
+                    # Zebra 프린터인지 확인
+                    if 'ZT230' in printer_name or 'ZDesigner' in printer_name or 'Zebra' in printer_name:
+                        print("Zebra 프린터 감지, ZPL 명령어로 인쇄 시도...")
+                        return self.print_zpl_label(pdf_path, printer_name, label_data)
+                    else:
+                        # 일반 프린터는 PDF로 인쇄
+                        return self.print_pdf_label(pdf_path, printer_name)
                 else:
                     # 기본 프린터로 인쇄
                     os.startfile(pdf_path, "print")
@@ -141,6 +110,111 @@ class LabelPrinter:
         except Exception as e:
             logger.error(f"인쇄 중 오류 발생: {str(e)}")
             return False
+    
+    def print_zpl_label(self, pdf_path, printer_name, label_data=None):
+        """Zebra 프린터로 ZPL 명령어 인쇄"""
+        try:
+            # 라벨 데이터가 없으면 기본값 사용
+            if not label_data:
+                label_data = {
+                    'net_weight': '0.00',
+                    'total_weight': '0.00', 
+                    'pallet_weight': '0.00'
+                }
+            
+            # ZPL 명령어 생성 (10cm x 5cm 라벨 = 394 x 197 dots at 300dpi)
+            zpl_command = f"""
+^XA
+^FO20,20^A0N,40,40^FD제품 라벨^FS
+^FO20,80^A0N,60,60^FD{label_data.get('net_weight', '0.00')} kg^FS
+^FO20,160^A0N,25,25^FD총무게: {label_data.get('total_weight', '0.00')} kg^FS
+^FO20,190^A0N,25,25^FD팔렛무게: {label_data.get('pallet_weight', '0.00')} kg^FS
+^FO20,230^A0N,20,20^FD{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}^FS
+^XZ
+"""
+            
+            # ZPL 명령어를 프린터로 직접 전송
+            print(f"ZPL 명령어 전송: {zpl_command.strip()}")
+            
+            # Windows에서 Zebra 프린터로 직접 전송
+            try:
+                # 방법 1: PowerShell을 사용하여 프린터로 직접 전송
+                ps_command = f"""
+                $zpl = @"
+{zpl_command}
+"@
+                $zpl | Out-Printer -Name '{printer_name}'
+                Write-Host "ZPL 명령어 전송 완료"
+                """
+                
+                result = subprocess.run([
+                    'powershell', '-Command', ps_command
+                ], capture_output=True, text=True, timeout=30)
+                
+                if result.returncode == 0:
+                    logger.info(f"Zebra 프린터 '{printer_name}'로 ZPL 인쇄 성공")
+                    return True
+                else:
+                    print(f"ZPL 전송 실패: {result.stderr}")
+                    return False
+                    
+            except Exception as e:
+                logger.error(f"ZPL 전송 오류: {e}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"ZPL 인쇄 중 오류 발생: {str(e)}")
+            return False
+    
+    def print_pdf_label(self, pdf_path, printer_name):
+        """일반 프린터로 PDF 인쇄"""
+        try:
+            # Adobe Reader를 사용하여 특정 프린터로 인쇄
+            adobe_command = f"""
+            $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
+            if (-not $adobePath) {{
+                $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
+            }}
+            if ($adobePath) {{
+                Write-Host "Using Adobe Reader: $adobePath"
+                Start-Process -FilePath $adobePath -ArgumentList "/t", "{pdf_path}", "{printer_name}" -WindowStyle Hidden -Wait
+                Write-Host "Adobe Reader print completed"
+            }} else {{
+                Write-Host "Adobe Reader not found"
+                exit 1
+            }}
+            """
+            
+            result = subprocess.run([
+                'powershell', '-Command', adobe_command
+            ], capture_output=True, text=True, timeout=30)
+            
+            if result.returncode == 0:
+                logger.info(f"Adobe Reader로 프린터 '{printer_name}' 인쇄 성공")
+                return True
+            else:
+                print(f"Adobe Reader 실패: {result.stderr}")
+                # 기본 PDF 뷰어로 인쇄
+                os.startfile(pdf_path, "print")
+                logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
+                return True
+                
+        except Exception as e:
+            logger.error(f"PDF 인쇄 실패: {e}")
+            return False
+    
+    def extract_weight_from_pdf(self, pdf_path):
+        """PDF에서 무게 정보 추출 (임시 구현)"""
+        # 실제로는 PDF를 파싱해야 하지만, 여기서는 임시로 기본값 반환
+        return "0.00"
+    
+    def extract_total_weight_from_pdf(self, pdf_path):
+        """PDF에서 총무게 추출 (임시 구현)"""
+        return "0.00"
+    
+    def extract_pallet_weight_from_pdf(self, pdf_path):
+        """PDF에서 팔렛무게 추출 (임시 구현)"""
+        return "0.00"
 
 class LabelPrinterGUI:
     def __init__(self, root):
@@ -422,8 +496,8 @@ class LabelPrinterGUI:
             print(f"실제 프린터명: {actual_printer_name}")
             print(f"사용 가능한 프린터 매핑: {self.printer_names}")
             
-            # 인쇄 실행
-            success = self.printer.print_label(pdf_path, actual_printer_name)
+            # 인쇄 실행 (라벨 데이터도 함께 전달)
+            success = self.printer.print_label(pdf_path, actual_printer_name, data)
             
             if success:
                 # 인쇄 기록 저장
@@ -689,8 +763,8 @@ class LabelPrinterGUI:
                 print(f"API 인쇄 - 선택된 프린터: {display_name}")
                 print(f"API 인쇄 - 실제 프린터명: {actual_printer_name}")
                 
-                # 인쇄 실행
-                success = self.printer.print_label(pdf_path, actual_printer_name)
+                # 인쇄 실행 (라벨 데이터도 함께 전달)
+                success = self.printer.print_label(pdf_path, actual_printer_name, data)
                 
                 if success:
                     # 인쇄 기록 저장
