@@ -28,11 +28,20 @@ class LabelPrinter:
         
     def create_label_pdf(self, data):
         """라벨 PDF 생성"""
+        print(f"=== PDF 생성 디버깅 ===")
+        print(f"입력 데이터: {data}")
+        
         # 임시 PDF 파일 생성
         pdf_path = os.path.join(self.temp_dir, f"label_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf")
+        print(f"PDF 파일 경로: {pdf_path}")
         
-        # PDF 캔버스 생성
-        c = canvas.Canvas(pdf_path, pagesize=(LABEL_WIDTH, LABEL_HEIGHT))
+        try:
+            # PDF 캔버스 생성
+            c = canvas.Canvas(pdf_path, pagesize=(LABEL_WIDTH, LABEL_HEIGHT))
+            print(f"PDF 캔버스 생성 성공: {LABEL_WIDTH}x{LABEL_HEIGHT}")
+        except Exception as e:
+            print(f"❌ PDF 캔버스 생성 실패: {e}")
+            raise
         
         # 폰트 설정
         c.setFont("Helvetica-Bold", 16)
@@ -72,6 +81,15 @@ class LabelPrinter:
         c.drawString(LABEL_WIDTH-3*cm, 0.5*cm, f"시간: {datetime.now().strftime('%H:%M:%S')}")
         
         c.save()
+        print(f"✅ PDF 저장 완료: {pdf_path}")
+        
+        # 파일 존재 여부 확인
+        if os.path.exists(pdf_path):
+            file_size = os.path.getsize(pdf_path)
+            print(f"✅ PDF 파일 확인됨 - 크기: {file_size} bytes")
+        else:
+            print(f"❌ PDF 파일이 생성되지 않았습니다!")
+            
         return pdf_path
     
     def print_label(self, pdf_path, printer_name=None, label_data=None):
@@ -153,10 +171,23 @@ class LabelPrinter:
                 os.startfile(pdf_path, 'print')
                 return True
             
-            # PDF 인쇄
+            # PDF 인쇄 - 더 확실한 방법 사용
             print("PDF 인쇄 시작...")
-            os.startfile(pdf_path, 'print')
-            print(f"✅ PDF가 프린터로 전송되었습니다: {printer_name}")
+            
+            # 방법 1: win32api를 사용하여 직접 프린터로 전송
+            try:
+                import win32api
+                print(f"win32api로 프린터 '{printer_name}'에 직접 전송 시도...")
+                win32api.ShellExecute(0, "print", pdf_path, f'/d:"{printer_name}"', ".", 0)
+                print(f"✅ win32api로 PDF가 프린터로 전송되었습니다: {printer_name}")
+            except ImportError:
+                print("win32api 없음, 기본 방법 사용...")
+                os.startfile(pdf_path, 'print')
+                print(f"✅ PDF가 기본 프린터로 전송되었습니다")
+            except Exception as e:
+                print(f"win32api 실패: {e}, 기본 방법 사용...")
+                os.startfile(pdf_path, 'print')
+                print(f"✅ PDF가 기본 프린터로 전송되었습니다")
             
             # 잠시 대기 후 원래 기본 프린터로 복원
             import time
