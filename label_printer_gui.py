@@ -95,7 +95,7 @@ class LabelPrinter:
                 if printer_name:
                     print(f"Windows 인쇄 시도 - 프린터: {printer_name}")
                     
-                    # Adobe Reader를 사용하여 특정 프린터로 인쇄
+                    # 방법 1: Adobe Reader를 사용하여 특정 프린터로 인쇄
                     try:
                         adobe_command = f"""
                         $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
@@ -121,11 +121,17 @@ class LabelPrinter:
                             return True
                         else:
                             print(f"Adobe Reader 실패: {result.stderr}")
-                            logger.error(f"프린터 '{printer_name}'로 인쇄 실패")
-                            return False
                     except Exception as e:
                         print(f"Adobe Reader 오류: {e}")
-                        logger.error(f"프린터 '{printer_name}'로 인쇄 실패: {e}")
+                    
+                    # 방법 2: 기본 PDF 뷰어로 인쇄
+                    print("Adobe Reader 실패, 기본 PDF 뷰어로 인쇄 시도...")
+                    try:
+                        os.startfile(pdf_path, "print")
+                        logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
+                        return True
+                    except Exception as e:
+                        logger.error(f"기본 인쇄 실패: {e}")
                         return False
                 else:
                     # 기본 프린터로 인쇄
