@@ -93,29 +93,85 @@ class LabelPrinter:
             else:
                 # Windows의 경우 - 특정 프린터로 인쇄
                 if printer_name:
-                    # PowerShell을 사용하여 특정 프린터로 인쇄
-                    ps_command = f"""
-                    $printer = Get-Printer -Name '{printer_name}' -ErrorAction SilentlyContinue
-                    if ($printer) {{
-                        Start-Process -FilePath '{pdf_path}' -Verb Print -WindowStyle Hidden
-                        Write-Host "Printing to $($printer.Name)"
-                    }} else {{
-                        Write-Error "Printer '{printer_name}' not found"
-                        exit 1
-                    }}
-                    """
-                    result = subprocess.run([
-                        'powershell', '-Command', ps_command
-                    ], capture_output=True, text=True, timeout=30)
+                    print(f"Windows 인쇄 시도 - 프린터: {printer_name}")
                     
-                    if result.returncode == 0:
-                        logger.info(f"라벨이 프린터 '{printer_name}'로 성공적으로 인쇄되었습니다: {pdf_path}")
-                        return True
-                    else:
-                        logger.error(f"인쇄 실패: {result.stderr}")
-                        # 실패 시 기본 프린터로 시도
+                    # 방법 1: Adobe Reader를 사용하여 특정 프린터로 인쇄
+                    try:
+                        adobe_command = f"""
+                        $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
+                        if (-not $adobePath) {{
+                            $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
+                        }}
+                        if ($adobePath) {{
+                            Write-Host "Using Adobe Reader: $adobePath"
+                            Start-Process -FilePath $adobePath -ArgumentList "/t", "{pdf_path}", "{printer_name}" -WindowStyle Hidden -Wait
+                            Write-Host "Adobe Reader print completed"
+                        }} else {{
+                            Write-Host "Adobe Reader not found, trying alternative method"
+                            exit 1
+                        }}
+                        """
+                        
+                        result = subprocess.run([
+                            'powershell', '-Command', adobe_command
+                        ], capture_output=True, text=True, timeout=30)
+                        
+                        if result.returncode == 0:
+                            logger.info(f"Adobe Reader로 프린터 '{printer_name}' 인쇄 성공")
+                            return True
+                        else:
+                            print(f"Adobe Reader 실패: {result.stderr}")
+                    except Exception as e:
+                        print(f"Adobe Reader 오류: {e}")
+                    
+                    # 방법 2: 기본 프린터를 임시로 변경하여 인쇄
+                    try:
+                        print("기본 프린터 임시 변경 시도...")
+                        
+                        # 현재 기본 프린터 저장
+                        get_default_command = "Get-Printer | Where-Object {$_.IsDefault -eq $true} | Select-Object -ExpandProperty Name"
+                        default_result = subprocess.run([
+                            'powershell', '-Command', get_default_command
+                        ], capture_output=True, text=True, timeout=10)
+                        
+                        original_default = default_result.stdout.strip() if default_result.returncode == 0 else None
+                        print(f"현재 기본 프린터: {original_default}")
+                        
+                        # 기본 프린터를 선택된 프린터로 변경
+                        set_default_command = f"Set-Printer -Name '{printer_name}' -AsDefault"
+                        set_result = subprocess.run([
+                            'powershell', '-Command', set_default_command
+                        ], capture_output=True, text=True, timeout=10)
+                        
+                        if set_result.returncode == 0:
+                            print(f"기본 프린터를 '{printer_name}'로 변경 성공")
+                            
+                            # PDF 인쇄
+                            os.startfile(pdf_path, "print")
+                            
+                            # 잠시 대기 후 원래 기본 프린터로 복원
+                            import time
+                            time.sleep(2)
+                            
+                            if original_default:
+                                restore_command = f"Set-Printer -Name '{original_default}' -AsDefault"
+                                restore_result = subprocess.run([
+                                    'powershell', '-Command', restore_command
+                                ], capture_output=True, text=True, timeout=10)
+                                print(f"기본 프린터 복원: {restore_result.returncode}")
+                            
+                            logger.info(f"프린터 '{printer_name}'로 인쇄 완료")
+                            return True
+                        else:
+                            print(f"기본 프린터 변경 실패: {set_result.stderr}")
+                            # 실패 시 기본 방법으로 인쇄
+                            os.startfile(pdf_path, "print")
+                            return True
+                            
+                    except Exception as e:
+                        logger.error(f"기본 프린터 변경 실패: {e}")
+                        # 최후의 수단: 기본 프린터로 인쇄
                         os.startfile(pdf_path, "print")
-                        logger.info(f"기본 프린터로 인쇄 시도: {pdf_path}")
                         return True
                 else:
                     # 기본 프린터로 인쇄

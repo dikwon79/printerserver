@@ -279,17 +279,22 @@ const LabelPrintScreen = () => {
         <View style={styles.inputGroup}>
           <View style={styles.printerHeader}>
             <Text style={styles.label}>프린터 선택 *</Text>
-            <TouchableOpacity style={styles.refreshButton} onPress={loadPrinters}>
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={loadPrinters}
+            >
               <Text style={styles.refreshButtonText}>🔄 새로고침</Text>
             </TouchableOpacity>
           </View>
-          
+
           <View style={styles.pickerContainer}>
             <Picker
               selectedValue={selectedPrinter}
               onValueChange={(itemValue) => {
-                console.log("🎯 프린터 선택 변경:", itemValue);
-                setSelectedPrinter(itemValue);
+                if (itemValue && itemValue !== "") {
+                  console.log("🎯 프린터 선택 변경:", itemValue);
+                  setSelectedPrinter(itemValue);
+                }
               }}
               style={styles.picker}
               itemStyle={styles.pickerItem}
@@ -324,9 +329,12 @@ const LabelPrintScreen = () => {
         </TouchableOpacity>
 
         <TouchableOpacity
-          style={[styles.printButton, loading && styles.buttonDisabled]}
+          style={[
+            styles.printButton,
+            (loading || !selectedPrinter) && styles.buttonDisabled,
+          ]}
           onPress={handlePrint}
-          disabled={loading}
+          disabled={loading || !selectedPrinter}
         >
           {loading ? (
             <ActivityIndicator color="white" />
