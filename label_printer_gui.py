@@ -173,8 +173,20 @@ class LabelPrinter:
             
             # PDF 인쇄 - 기본 프린터 변경 후 인쇄
             print("PDF 인쇄 시작...")
+            
+            # 인쇄 전 최종 확인
+            current_printer = win32print.GetDefaultPrinter()
+            print(f"⚠️ 인쇄 직전 기본 프린터 확인: {current_printer}")
+            
+            if current_printer != printer_name:
+                print(f"❌ 경고: 기본 프린터가 '{current_printer}'로 되어 있습니다!")
+                print(f"   예상된 프린터: '{printer_name}'")
+                print("   인쇄는 현재 기본 프린터로 진행됩니다.")
+            else:
+                print(f"✅ 확인: 기본 프린터가 '{printer_name}'로 정확히 설정되어 있습니다.")
+            
             os.startfile(pdf_path, 'print')
-            print(f"✅ PDF가 프린터로 전송되었습니다: {printer_name}")
+            print(f"✅ PDF가 프린터로 전송되었습니다: {current_printer}")
             
             # 잠시 대기 후 원래 기본 프린터로 복원
             import time
