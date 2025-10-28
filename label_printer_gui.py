@@ -719,14 +719,60 @@ class LabelPrinterGUI:
                     else:
                         return jsonify({'success': True, 'printers': []})
                 else:
-                    return jsonify({
-                        'success': True,
-                        'printers': [{
+                    # Windows의 경우 - GUI와 동일한 로직 사용
+                    printers = []
+                    try:
+                        # 방법 1: PowerShell로 프린터 목록 조회
+                        ps_command = "Get-Printer | ForEach-Object { $_.Name }"
+                        result = subprocess.run([
+                            'powershell', '-Command', ps_command
+                        ], capture_output=True, text=True, timeout=10)
+                        
+                        if result.returncode == 0 and result.stdout.strip():
+                            printer_names = result.stdout.strip().split('\n')
+                            for printer_name in printer_names:
+                                printer_name = printer_name.strip()
+                                if printer_name:
+                                    printers.append({
+                                        'name': printer_name,
+                                        'status': 'available',
+                                        'description': f'프린터 {printer_name}'
+                                    })
+                        
+                        # 방법 2: wmic 명령어로도 시도
+                        if not printers:
+                            wmic_result = subprocess.run([
+                                'wmic', 'printer', 'get', 'name', '/format:list'
+                            ], capture_output=True, text=True, timeout=10)
+                            
+                            if wmic_result.returncode == 0:
+                                for line in wmic_result.stdout.split('\n'):
+                                    if line.startswith('Name='):
+                                        printer_name = line.replace('Name=', '').strip()
+                                        if printer_name and printer_name != '':
+                                            printers.append({
+                                                'name': printer_name,
+                                                'status': 'available',
+                                                'description': f'프린터 {printer_name}'
+                                            })
+                        
+                        # 프린터가 없으면 기본 프린터 추가
+                        if not printers:
+                            printers.append({
+                                'name': 'default',
+                                'status': 'available',
+                                'description': '기본 프린터'
+                            })
+                            
+                    except Exception as e:
+                        print(f"Windows 프린터 조회 오류: {e}")
+                        printers.append({
                             'name': 'default',
                             'status': 'available',
                             'description': '기본 프린터'
-                        }]
-                    })
+                        })
+                    
+                    return jsonify({'success': True, 'printers': printers})
             except Exception as e:
                 return jsonify({
                     'success': False,
