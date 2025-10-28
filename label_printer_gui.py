@@ -91,9 +91,37 @@ class LabelPrinter:
                     logger.error(f"인쇄 실패: {result.stderr}")
                     return False
             else:
-                # Windows의 경우
-                os.startfile(pdf_path, "print")
-                return True
+                # Windows의 경우 - 특정 프린터로 인쇄
+                if printer_name:
+                    # PowerShell을 사용하여 특정 프린터로 인쇄
+                    ps_command = f"""
+                    $printer = Get-Printer -Name '{printer_name}' -ErrorAction SilentlyContinue
+                    if ($printer) {{
+                        Start-Process -FilePath '{pdf_path}' -Verb Print -WindowStyle Hidden
+                        Write-Host "Printing to $($printer.Name)"
+                    }} else {{
+                        Write-Error "Printer '{printer_name}' not found"
+                        exit 1
+                    }}
+                    """
+                    result = subprocess.run([
+                        'powershell', '-Command', ps_command
+                    ], capture_output=True, text=True, timeout=30)
+                    
+                    if result.returncode == 0:
+                        logger.info(f"라벨이 프린터 '{printer_name}'로 성공적으로 인쇄되었습니다: {pdf_path}")
+                        return True
+                    else:
+                        logger.error(f"인쇄 실패: {result.stderr}")
+                        # 실패 시 기본 프린터로 시도
+                        os.startfile(pdf_path, "print")
+                        logger.info(f"기본 프린터로 인쇄 시도: {pdf_path}")
+                        return True
+                else:
+                    # 기본 프린터로 인쇄
+                    os.startfile(pdf_path, "print")
+                    logger.info(f"라벨이 기본 프린터로 인쇄되었습니다: {pdf_path}")
+                    return True
         except Exception as e:
             logger.error(f"인쇄 중 오류 발생: {str(e)}")
             return False
@@ -373,6 +401,11 @@ class LabelPrinterGUI:
             display_name = data['printer']
             actual_printer_name = self.printer_names.get(display_name, None)
             
+            # 디버깅 정보 출력
+            print(f"선택된 프린터 표시명: {display_name}")
+            print(f"실제 프린터명: {actual_printer_name}")
+            print(f"사용 가능한 프린터 매핑: {self.printer_names}")
+            
             # 인쇄 실행
             success = self.printer.print_label(pdf_path, actual_printer_name)
             
@@ -504,8 +537,12 @@ class LabelPrinterGUI:
         
         # 콤보박스 업데이트
         self.printer_combo['values'] = printer_list
-        if printer_list and not self.printer_var.get():
-            self.printer_combo.current(0)
+        if printer_list:
+            # 현재 선택된 값이 없거나 목록에 없으면 첫 번째 항목 선택
+            current_value = self.printer_var.get()
+            if not current_value or current_value not in printer_list:
+                self.printer_combo.current(0)
+                self.printer_var.set(printer_list[0])
     
     def save_print_record(self, data):
         """인쇄 기록 저장"""
