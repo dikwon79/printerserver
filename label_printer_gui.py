@@ -91,17 +91,10 @@ class LabelPrinter:
                     logger.error(f"인쇄 실패: {result.stderr}")
                     return False
             else:
-                # Windows의 경우
+                # Windows의 경우 - PDF로 인쇄
                 if printer_name:
                     print(f"Windows 인쇄 시도 - 프린터: {printer_name}")
-                    
-                    # Zebra 프린터인지 확인
-                    if 'ZT230' in printer_name or 'ZDesigner' in printer_name or 'Zebra' in printer_name:
-                        print("Zebra 프린터 감지, ZPL 명령어로 인쇄 시도...")
-                        return self.print_zpl_label(pdf_path, printer_name, label_data)
-                    else:
-                        # 일반 프린터는 간단한 방법으로 인쇄
-                        return self.print_simple_pdf(pdf_path, printer_name)
+                    return self.print_simple_pdf(pdf_path, printer_name)
                 else:
                     # 기본 프린터로 인쇄
                     os.startfile(pdf_path, "print")
@@ -114,59 +107,40 @@ class LabelPrinter:
     def print_simple_pdf(self, pdf_path, printer_name):
         """선택된 프린터로 PDF 인쇄"""
         try:
-            # 방법 1: PowerShell을 사용하여 특정 프린터로 인쇄
-            print(f"PowerShell로 프린터 '{printer_name}' 인쇄 시도...")
-            ps_command = f"""
-            try {{
-                # PDF 파일을 특정 프린터로 인쇄
-                $printer = Get-Printer -Name '{printer_name}' -ErrorAction SilentlyContinue
-                if ($printer) {{
-                    Write-Host "프린터 찾음: $($printer.Name)"
-                    
-                    # 방법 1: Adobe Reader로 특정 프린터 인쇄
-                    $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
-                    if ($adobePath) {{
-                        Write-Host "Adobe Reader로 인쇄 시도: $adobePath"
-                        Start-Process -FilePath $adobePath -ArgumentList "/t", "{pdf_path}", "{printer_name}" -WindowStyle Hidden -Wait
-                        Write-Host "Adobe Reader 인쇄 완료"
-                    }} else {{
-                        Write-Host "Adobe Reader 없음, 기본 방법 시도"
-                        # 기본 방법으로 인쇄
-                        Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden
-                        Write-Host "기본 방법으로 인쇄 완료"
-                    }}
-                }} else {{
-                    Write-Host "프린터를 찾을 수 없음: {printer_name}"
-                    # 프린터가 없으면 기본 방법으로 인쇄
-                    Start-Process -FilePath "{pdf_path}" -Verb Print -WindowStyle Hidden
-                    Write-Host "기본 프린터로 인쇄 완료"
-                }}
-            }} catch {{
-                Write-Error "인쇄 실패: $($_.Exception.Message)"
-                exit 1
-            }}
-            """
+            import win32print
             
-            result = subprocess.run([
-                'powershell', '-Command', ps_command
-            ], capture_output=True, text=True, timeout=30)
+            # 현재 기본 프린터 저장
+            original_default = win32print.GetDefaultPrinter()
+            print(f"현재 기본 프린터: {original_default}")
             
-            if result.returncode == 0:
-                logger.info(f"PowerShell로 프린터 '{printer_name}' 인쇄 성공")
-                return True
-            else:
-                print(f"PowerShell 인쇄 실패: {result.stderr}")
-                
-                # 방법 2: 기본 PDF 뷰어로 인쇄 (백업)
-                print("PowerShell 실패, 기본 PDF 뷰어로 인쇄 시도...")
-                os.startfile(pdf_path, "print")
-                logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
-                return True
-                
+            # 선택된 프린터를 기본 프린터로 임시 변경
+            win32print.SetDefaultPrinter(printer_name)
+            print(f"기본 프린터를 '{printer_name}'로 임시 변경")
+            
+            # PDF 인쇄
+            os.startfile(pdf_path, 'print')
+            print(f"✅ PDF가 프린터로 전송되었습니다: {printer_name}")
+            
+            # 잠시 대기 후 원래 기본 프린터로 복원
+            import time
+            time.sleep(2)
+            win32print.SetDefaultPrinter(original_default)
+            print(f"기본 프린터 복원: {original_default}")
+            
+            logger.info(f"프린터 '{printer_name}'로 PDF 인쇄 성공")
+            return True
+            
+        except ImportError:
+            print("win32print 모듈이 없습니다. pip install pywin32로 설치해주세요.")
+            # win32print가 없으면 기본 방법으로 인쇄
+            os.startfile(pdf_path, "print")
+            logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
+            return True
+            
         except Exception as e:
             logger.error(f"PDF 인쇄 실패: {e}")
             
-            # 최후의 수단: 기본 PDF 뷰어로 인쇄
+            # 오류 발생 시 기본 방법으로 인쇄
             try:
                 os.startfile(pdf_path, "print")
                 logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
@@ -175,180 +149,8 @@ class LabelPrinter:
                 logger.error(f"기본 인쇄도 실패: {e2}")
                 return False
     
-    def print_zpl_label(self, pdf_path, printer_name, label_data=None):
-        """Zebra 프린터로 ZPL 명령어 인쇄"""
-        try:
-            # 라벨 데이터가 없으면 기본값 사용
-            if not label_data:
-                label_data = {
-                    'net_weight': '0.00',
-                    'total_weight': '0.00', 
-                    'pallet_weight': '0.00'
-                }
-            
-            # ZPL 명령어 생성 (10cm x 5cm 라벨 = 394 x 197 dots at 300dpi)
-            zpl_command = f"""
-^XA
-^FO20,20^A0N,40,40^FD제품 라벨^FS
-^FO20,80^A0N,60,60^FD{label_data.get('net_weight', '0.00')} kg^FS
-^FO20,160^A0N,25,25^FD총무게: {label_data.get('total_weight', '0.00')} kg^FS
-^FO20,190^A0N,25,25^FD팔렛무게: {label_data.get('pallet_weight', '0.00')} kg^FS
-^FO20,230^A0N,20,20^FD{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}^FS
-^XZ
-"""
-            
-            # ZPL 명령어를 프린터로 직접 전송
-            print(f"ZPL 명령어 전송: {zpl_command.strip()}")
-            
-            # Windows에서 Zebra 프린터로 직접 전송
-            try:
-                # 방법 1: PowerShell을 사용하여 프린터로 직접 전송
-                ps_command = f"""
-                $zpl = @"
-{zpl_command}
-"@
-                $zpl | Out-Printer -Name '{printer_name}'
-                Write-Host "ZPL 명령어 전송 완료"
-                """
-                
-                result = subprocess.run([
-                    'powershell', '-Command', ps_command
-                ], capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0:
-                    logger.info(f"Zebra 프린터 '{printer_name}'로 ZPL 인쇄 성공")
-                    return True
-                else:
-                    print(f"ZPL 전송 실패: {result.stderr}")
-                    return False
-                    
-            except Exception as e:
-                logger.error(f"ZPL 전송 오류: {e}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"ZPL 인쇄 중 오류 발생: {str(e)}")
-            return False
     
-    def print_pdf_label(self, pdf_path, printer_name):
-        """일반 프린터로 PDF 인쇄"""
-        try:
-            # 방법 1: Adobe Reader를 사용하여 특정 프린터로 인쇄
-            try:
-                adobe_command = f"""
-                $adobePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\AcroRd32.exe -ErrorAction SilentlyContinue).'(Default)'
-                if ($adobePath) {{
-                    Write-Host "Using Adobe Reader: $adobePath"
-                    Start-Process -FilePath $adobePath -ArgumentList "/t", "{pdf_path}", "{printer_name}" -WindowStyle Hidden -Wait
-                    Write-Host "Adobe Reader print completed"
-                }} else {{
-                    Write-Host "Adobe Reader not found"
-                    exit 1
-                }}
-                """
-                
-                result = subprocess.run([
-                    'powershell', '-Command', adobe_command
-                ], capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0:
-                    logger.info(f"Adobe Reader로 프린터 '{printer_name}' 인쇄 성공")
-                    return True
-                else:
-                    print(f"Adobe Reader 실패: {result.stderr}")
-            except Exception as e:
-                print(f"Adobe Reader 오류: {e}")
-            
-            # 방법 2: Microsoft Edge를 사용하여 특정 프린터로 인쇄
-            try:
-                print("Microsoft Edge로 특정 프린터 인쇄 시도...")
-                edge_command = f"""
-                $edgePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\msedge.exe -ErrorAction SilentlyContinue).'(Default)'
-                if ($edgePath) {{
-                    Write-Host "Using Microsoft Edge: $edgePath"
-                    # Edge로 PDF를 열고 인쇄 대화상자 표시
-                    Start-Process -FilePath $edgePath -ArgumentList "file:///{pdf_path.replace(chr(92), '/')}"
-                    Start-Sleep -Seconds 2
-                    # Ctrl+P로 인쇄 대화상자 열기
-                    Add-Type -AssemblyName System.Windows.Forms
-                    [System.Windows.Forms.SendKeys]::SendWait("^p")
-                    Write-Host "Edge print dialog opened"
-                }} else {{
-                    Write-Host "Edge not found"
-                    exit 1
-                }}
-                """
-                
-                result = subprocess.run([
-                    'powershell', '-Command', edge_command
-                ], capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0:
-                    logger.info(f"Microsoft Edge로 프린터 '{printer_name}' 인쇄 대화상자 열기 성공")
-                    return True
-                else:
-                    print(f"Edge 인쇄 실패: {result.stderr}")
-            except Exception as e:
-                print(f"Edge 인쇄 오류: {e}")
-            
-            # 방법 3: Chrome을 사용하여 특정 프린터로 인쇄
-            try:
-                print("Google Chrome으로 특정 프린터 인쇄 시도...")
-                chrome_command = f"""
-                $chromePath = (Get-ItemProperty HKLM:\\Software\\Microsoft\\Windows\\CurrentVersion\\App Paths\\chrome.exe -ErrorAction SilentlyContinue).'(Default)'
-                if ($chromePath) {{
-                    Write-Host "Using Google Chrome: $chromePath"
-                    # Chrome으로 PDF를 열고 인쇄 대화상자 표시
-                    Start-Process -FilePath $chromePath -ArgumentList "file:///{pdf_path.replace(chr(92), '/')}"
-                    Start-Sleep -Seconds 2
-                    # Ctrl+P로 인쇄 대화상자 열기
-                    Add-Type -AssemblyName System.Windows.Forms
-                    [System.Windows.Forms.SendKeys]::SendWait("^p")
-                    Write-Host "Chrome print dialog opened"
-                }} else {{
-                    Write-Host "Chrome not found"
-                    exit 1
-                }}
-                """
-                
-                result = subprocess.run([
-                    'powershell', '-Command', chrome_command
-                ], capture_output=True, text=True, timeout=30)
-                
-                if result.returncode == 0:
-                    logger.info(f"Google Chrome으로 프린터 '{printer_name}' 인쇄 대화상자 열기 성공")
-                    return True
-                else:
-                    print(f"Chrome 인쇄 실패: {result.stderr}")
-            except Exception as e:
-                print(f"Chrome 인쇄 오류: {e}")
-            
-            # 방법 4: 기본 PDF 뷰어로 인쇄 (프린터 선택 불가)
-            print("기본 PDF 뷰어로 인쇄 시도...")
-            try:
-                os.startfile(pdf_path, "print")
-                logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
-                return True
-            except Exception as e:
-                logger.error(f"기본 인쇄 실패: {e}")
-                return False
-                
-        except Exception as e:
-            logger.error(f"PDF 인쇄 실패: {e}")
-            return False
     
-    def extract_weight_from_pdf(self, pdf_path):
-        """PDF에서 무게 정보 추출 (임시 구현)"""
-        # 실제로는 PDF를 파싱해야 하지만, 여기서는 임시로 기본값 반환
-        return "0.00"
-    
-    def extract_total_weight_from_pdf(self, pdf_path):
-        """PDF에서 총무게 추출 (임시 구현)"""
-        return "0.00"
-    
-    def extract_pallet_weight_from_pdf(self, pdf_path):
-        """PDF에서 팔렛무게 추출 (임시 구현)"""
-        return "0.00"
 
 class LabelPrinterGUI:
     def __init__(self, root):
@@ -638,9 +440,7 @@ class LabelPrinterGUI:
                 self.save_print_record(data)
                 
                 # 프린터 타입에 따른 메시지
-                if actual_printer_name and ('ZT230' in actual_printer_name or 'ZDesigner' in actual_printer_name or 'Zebra' in actual_printer_name):
-                    messagebox.showinfo("성공", f"Zebra 프린터 '{actual_printer_name}'로 라벨이 성공적으로 인쇄되었습니다.")
-                elif actual_printer_name:
+                if actual_printer_name:
                     messagebox.showinfo("성공", f"프린터 '{actual_printer_name}'로 라벨이 성공적으로 인쇄되었습니다.")
                 else:
                     messagebox.showinfo("성공", "라벨이 성공적으로 인쇄되었습니다.\n(기본 프린터로 인쇄됨)")
