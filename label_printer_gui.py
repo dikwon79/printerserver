@@ -642,13 +642,13 @@ class LabelPrinterGUI:
                                         printer_list.append(display_name)
                                         self.printer_names[display_name] = printer_name
                 
-                # 프린터가 없으면 기본 프린터 추가
-                if not printer_list:
-                        printer_list.append("기본 프린터")
-                        self.printer_names["기본 프린터"] = None
-                        
                 except Exception as e:
                     print(f"Windows 프린터 조회 오류: {e}")
+                    printer_list.append("기본 프린터")
+                    self.printer_names["기본 프린터"] = None
+
+                # 프린터가 없으면 기본 프린터 추가
+                if not printer_list:
                     printer_list.append("기본 프린터")
                     self.printer_names["기본 프린터"] = None
                 
