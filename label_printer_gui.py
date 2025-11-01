@@ -92,6 +92,182 @@ class LabelPrinter:
             
         return pdf_path
     
+    def print_image(self, image_path, printer_name, label_width_cm=None, label_height_cm=None):
+        """이미지를 지정된 프린터로 직접 인쇄 (Word/한글 방식)
+        
+        Args:
+            image_path: 인쇄할 이미지 파일 경로
+            printer_name: 프린터 이름
+            label_width_cm: 라벨 너비 (cm) - None이면 이미지 크기 기반으로 계산
+            label_height_cm: 라벨 높이 (cm) - None이면 이미지 크기 기반으로 계산
+        """
+        try:
+            import win32print
+            import win32ui
+            from PIL import Image, ImageWin
+            
+            print(f"이미지 인쇄 시작 - 프린터: {printer_name}")
+            print(f"이미지 파일: {image_path}")
+            
+            # 이미지 로드
+            pil_image = Image.open(image_path)
+            img_width, img_height = pil_image.size
+            
+            # RGB 모드로 변환
+            if pil_image.mode != 'RGB':
+                pil_image = pil_image.convert('RGB')
+            
+            # win32print를 사용하여 이미지를 프린터로 직접 전송
+            # DC(Device Context) 생성 (Word/한글이 하는 방식)
+            hdc = win32ui.CreateDC()
+            hdc.CreatePrinterDC(printer_name)
+            
+            try:
+                # 인쇄 시작
+                hdc.StartDoc("Label Print")
+                hdc.StartPage()
+                
+                # 프린터 DPI 가져오기
+                printer_dpi_x = hdc.GetDeviceCaps(88)  # LOGPIXELSX
+                printer_dpi_y = hdc.GetDeviceCaps(90)  # LOGPIXELSY
+                
+                # GetDeviceCaps 상수 정의
+                HORZRES = 8        # 인쇄 가능 너비
+                VERTRES = 10      # 인쇄 가능 높이
+                PHYSICALWIDTH = 110   # 실제 페이지 너비
+                PHYSICALHEIGHT = 111  # 실제 페이지 높이
+                PHYSICALOFFSETX = 112  # 왼쪽 여백
+                PHYSICALOFFSETY = 113  # 위쪽 여백
+                
+                # 프린터의 실제 인쇄 가능 영역 가져오기
+                printable_width = hdc.GetDeviceCaps(HORZRES)
+                printable_height = hdc.GetDeviceCaps(VERTRES)
+                
+                # 프린터의 실제 페이지 크기 가져오기
+                page_width = hdc.GetDeviceCaps(PHYSICALWIDTH)
+                page_height = hdc.GetDeviceCaps(PHYSICALHEIGHT)
+                
+                # 프린터의 여백(오프셋) 가져오기
+                try:
+                    printer_margin_x = hdc.GetDeviceCaps(PHYSICALOFFSETX)
+                    printer_margin_y = hdc.GetDeviceCaps(PHYSICALOFFSETY)
+                    print(f"프린터 페이지 크기: {page_width} x {page_height} 픽셀")
+                    print(f"프린터 여백: ({printer_margin_x}, {printer_margin_y}) 픽셀")
+                except Exception as e:
+                    printer_margin_x = 0
+                    printer_margin_y = 0
+                    print(f"⚠️ 프린터 여백 정보를 가져올 수 없습니다: {e}")
+                    # 대안: 페이지 크기와 인쇄 가능 영역 차이로 여백 추정
+                    if page_width > printable_width:
+                        printer_margin_x = (page_width - printable_width) // 2
+                    if page_height > printable_height:
+                        printer_margin_y = (page_height - printable_height) // 2
+                    print(f"추정된 프린터 여백: ({printer_margin_x}, {printer_margin_y}) 픽셀")
+                
+                print(f"프린터 DPI: {printer_dpi_x} x {printer_dpi_y}")
+                print(f"프린터 인쇄 가능 영역: {printable_width} x {printable_height} 픽셀")
+                print(f"이미지 크기: {img_width} x {img_height} 픽셀 (300 DPI 기준)")
+                
+                # 라벨용지 사이즈에 맞게 인쇄
+                # label_width_cm, label_height_cm가 제공되면 그 값을 사용
+                # 없으면 이미지의 300 DPI 기준 물리적 크기 사용
+                if label_width_cm is not None and label_height_cm is not None:
+                    # 라벨용지 사이즈를 인치로 변환 (1cm = 0.393701 인치)
+                    physical_width_inch = label_width_cm * 0.393701
+                    physical_height_inch = label_height_cm * 0.393701
+                    print(f"라벨용지 사이즈 사용: {label_width_cm}cm x {label_height_cm}cm ({physical_width_inch:.2f}\" x {physical_height_inch:.2f}\")")
+                else:
+                    # 이미지는 300 DPI로 저장되었으므로, 물리적 크기 계산 (인치 단위)
+                    physical_width_inch = img_width / 300.0
+                    physical_height_inch = img_height / 300.0
+                    print(f"이미지 크기 기반 계산: {physical_width_inch:.2f}\" x {physical_height_inch:.2f}\"")
+                
+                # 프린터 DPI에서 라벨용지 사이즈에 맞는 픽셀 수 계산
+                scaled_width = int(physical_width_inch * printer_dpi_x)
+                scaled_height = int(physical_height_inch * printer_dpi_y)
+                
+                print(f"프린터 DPI 기준 출력 크기: {scaled_width} x {scaled_height} 픽셀")
+                print(f"프린터 인쇄 가능 영역: {printable_width} x {printable_height} 픽셀")
+                
+                # 라벨용지 사이즈에 맞게 정확히 출력
+                # 인쇄 가능 영역 내에서만 출력하도록 보장
+                # 비율을 유지하면서 인쇄 가능 영역에 맞게 조정
+                if scaled_width > printable_width or scaled_height > printable_height:
+                    # 인쇄 가능 영역보다 크면 비율을 유지하며 맞춤
+                    width_ratio = printable_width / scaled_width
+                    height_ratio = printable_height / scaled_height
+                    scale_ratio = min(width_ratio, height_ratio)
+                    
+                    scaled_width = int(scaled_width * scale_ratio)
+                    scaled_height = int(scaled_height * scale_ratio)
+                    
+                    print(f"⚠️ 이미지가 인쇄 가능 영역을 초과하여 비율 유지하며 축소: {scaled_width} x {scaled_height} 픽셀")
+                else:
+                    print(f"✅ 이미지 크기 OK: {scaled_width} x {scaled_height} 픽셀 (인쇄 가능 영역 내)")
+                
+                # PIL ImageWin을 사용하여 이미지를 프린터로 직접 그리기
+                # 이미지를 프린터 DPI에 맞게 리사이즈
+                # 원본 이미지를 프린터 크기에 맞게 조정
+                if pil_image.size[0] != scaled_width or pil_image.size[1] != scaled_height:
+                    print(f"이미지 리사이즈: {pil_image.size[0]} x {pil_image.size[1]} → {scaled_width} x {scaled_height}")
+                    pil_image = pil_image.resize((scaled_width, scaled_height), Image.Resampling.LANCZOS)
+                
+                # 인쇄 가능 영역 내에 정확히 맞도록 보장
+                # 스케일된 크기가 인쇄 가능 영역을 초과하지 않도록 확인
+                final_width = min(scaled_width, printable_width)
+                final_height = min(scaled_height, printable_height)
+                
+                if final_width != scaled_width or final_height != scaled_height:
+                    print(f"⚠️ 인쇄 가능 영역에 맞게 조정: {scaled_width} x {scaled_height} → {final_width} x {final_height}")
+                    pil_image = pil_image.resize((final_width, final_height), Image.Resampling.LANCZOS)
+                
+                dib = ImageWin.Dib(pil_image)
+                
+                # 프린터에 이미지 그리기
+                # 프린터 여백을 고려하여 이미지를 그릴 위치 결정
+                # 라벨 프린터는 보통 여백이 없어야 하므로, 여백을 무시하고 (0,0)부터 그리기
+                # 만약 프린터 여백이 있다면, 여백 위치에 맞춰서 그리기
+                
+                # 여백을 무시하고 (0, 0)부터 그리기 (라벨 프린터용)
+                print_offset_x = 0
+                print_offset_y = 0
+                
+                # 만약 프린터 여백을 고려하려면 아래 주석 해제:
+                # print_offset_x = printer_margin_x
+                # print_offset_y = printer_margin_y
+                
+                # 프린터의 실제 물리적 크기 그대로 출력
+                # 인쇄 가능 영역 내에 정확히 맞춤
+                target_rect = (print_offset_x, print_offset_y, 
+                              print_offset_x + final_width, 
+                              print_offset_y + final_height)
+                dib.draw(hdc.GetHandleOutput(), target_rect)
+                
+                print(f"인쇄 시작 위치: ({print_offset_x}, {print_offset_y})")
+                print(f"프린터 여백 정보: ({printer_margin_x}, {printer_margin_y}) - 이미지는 여백 무시하고 (0,0)부터 그려집니다")
+                
+                print(f"최종 인쇄 크기: {final_width} x {final_height} 픽셀")
+                
+                hdc.EndPage()
+                hdc.EndDoc()
+                
+                print(f"✅ 이미지를 프린터 '{printer_name}'로 직접 전송 성공")
+                logger.info(f"프린터 '{printer_name}'로 이미지 인쇄 성공")
+                return True
+                
+            finally:
+                hdc.DeleteDC()
+                
+        except ImportError:
+            print("❌ win32print 모듈이 없습니다. pip install pywin32 pillow로 설치해주세요.")
+            return False
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            logger.error(f"이미지 인쇄 실패: {e}")
+            print(f"❌ 이미지 인쇄 실패: {e}")
+            return False
+    
     def print_label(self, pdf_path, printer_name=None, label_data=None):
         """라벨 인쇄"""
         try:
@@ -156,50 +332,109 @@ class LabelPrinter:
                     os.startfile(pdf_path, 'print')
                     return True
             
-            # 선택된 프린터를 기본 프린터로 임시 변경
-            try:
-                win32print.SetDefaultPrinter(printer_name)
-                print(f"✅ 기본 프린터를 '{printer_name}'로 임시 변경 성공")
-                
-                # 변경 확인
-                current_default = win32print.GetDefaultPrinter()
-                print(f"변경 후 기본 프린터: {current_default}")
-                
-            except Exception as e:
-                print(f"❌ 기본 프린터 변경 실패: {e}")
-                print("기본 프린터로 인쇄합니다.")
-                os.startfile(pdf_path, 'print')
-                return True
+            # PDF를 특정 프린터로 직접 인쇄 (PowerShell 사용)
+            print(f"PDF 인쇄 시작 - 프린터: {printer_name}")
             
-            # PDF 인쇄 - 기본 프린터 변경 후 인쇄
-            print("PDF 인쇄 시작...")
-            
-            # 인쇄 전 최종 확인
-            current_printer = win32print.GetDefaultPrinter()
-            print(f"⚠️ 인쇄 직전 기본 프린터 확인: {current_printer}")
-            
-            if current_printer != printer_name:
-                print(f"❌ 경고: 기본 프린터가 '{current_printer}'로 되어 있습니다!")
-                print(f"   예상된 프린터: '{printer_name}'")
-                print("   인쇄는 현재 기본 프린터로 진행됩니다.")
-            else:
-                print(f"✅ 확인: 기본 프린터가 '{printer_name}'로 정확히 설정되어 있습니다.")
-            
-            os.startfile(pdf_path, 'print')
-            print(f"✅ PDF가 프린터로 전송되었습니다: {current_printer}")
-            
-            # 잠시 대기 후 원래 기본 프린터로 복원
-            import time
-            time.sleep(3)  # 인쇄 시간을 고려하여 3초로 증가
+            # 경로 이스케이프 처리
+            pdf_path_escaped = pdf_path.replace('\\', '\\\\').replace("'", "''")
+            printer_name_escaped = printer_name.replace("'", "''")
             
             try:
-                win32print.SetDefaultPrinter(original_default)
-                print(f"✅ 기본 프린터 복원 성공: {original_default}")
+                # 방법 1: Adobe Reader의 /t 옵션으로 직접 프린터 지정 (가장 확실한 방법)
+                print("Adobe Reader로 직접 프린터 지정 인쇄 시도...")
+                
+                ps_script = f'''
+$pdfPath = '{pdf_path_escaped}'
+$printerName = '{printer_name_escaped}'
+
+# Adobe Reader 경로 확인
+$acrord64Path = "C:\\Program Files (x86)\\Adobe\\Acrobat Reader DC\\Reader\\AcroRd32.exe"
+$acrord32Path = "C:\\Program Files\\Adobe\\Acrobat DC\\Acrobat\\Acrobat.exe"
+$acrord2024Path = "C:\\Program Files\\Adobe\\Acrobat Reader DC\\AcrobatReader.exe"
+
+if (Test-Path $acrord64Path) {{
+    # Adobe Reader의 /t 옵션: /t <파일경로> <프린터명>
+    Start-Process -FilePath $acrord64Path -ArgumentList "/t", $pdfPath, $printerName -WindowStyle Hidden
+    Write-Host "Adobe Reader로 프린터 $printerName 로 인쇄 시작"
+    exit 0
+}} elseif (Test-Path $acrord2024Path) {{
+    Start-Process -FilePath $acrord2024Path -ArgumentList "/t", $pdfPath, $printerName -WindowStyle Hidden
+    Write-Host "Adobe Reader로 프린터 $printerName 로 인쇄 시작"
+    exit 0
+}} elseif (Test-Path $acrord32Path) {{
+    Start-Process -FilePath $acrord32Path -ArgumentList "/t", $pdfPath, $printerName -WindowStyle Hidden
+    Write-Host "Adobe Reader로 프린터 $printerName 로 인쇄 시작"
+    exit 0
+}} else {{
+    Write-Host "Adobe Reader를 찾을 수 없습니다. 기본 프린터 변경 방법 사용"
+    exit 1
+}}
+'''
+                
+                result = subprocess.run([
+                    'powershell', '-Command', ps_script
+                ], capture_output=True, text=True, timeout=10)
+                
+                if result.returncode == 0:
+                    print(f"✅ Adobe Reader를 통해 프린터 '{printer_name}'로 PDF 인쇄 성공")
+                    logger.info(f"프린터 '{printer_name}'로 PDF 인쇄 성공")
+                    # Adobe Reader는 프린터를 직접 지정하므로 기본 프린터 복원 불필요
+                    return True
+                else:
+                    print(f"⚠️ Adobe Reader 방법 실패: {result.stderr}")
+                    print("대체 방법: 기본 프린터 임시 변경 후 인쇄...")
+                    raise Exception("Adobe Reader 방법 실패")
+                    
             except Exception as e:
-                print(f"⚠️ 기본 프린터 복원 실패: {e}")
-            
-            logger.info(f"프린터 '{printer_name}'로 PDF 인쇄 성공")
-            return True
+                print(f"⚠️ Adobe Reader 방법 실패: {e}")
+                
+                # 방법 2: 기본 프린터 임시 변경 (폴백)
+                try:
+                    win32print.SetDefaultPrinter(printer_name)
+                    print(f"✅ 기본 프린터를 '{printer_name}'로 임시 변경 성공")
+                    
+                    # 변경 확인 및 충분한 대기
+                    import time
+                    time.sleep(2)  # 프린터 변경이 시스템에 완전히 반영되도록 대기
+                    
+                    current_printer = win32print.GetDefaultPrinter()
+                    print(f"⚠️ 인쇄 직전 기본 프린터 확인: {current_printer}")
+                    
+                    if current_printer != printer_name:
+                        print(f"❌ 경고: 기본 프린터가 '{current_printer}'로 되어 있습니다!")
+                        print(f"   예상된 프린터: '{printer_name}'")
+                        # 다시 시도
+                        win32print.SetDefaultPrinter(printer_name)
+                        time.sleep(1)
+                        current_printer = win32print.GetDefaultPrinter()
+                    
+                    if current_printer == printer_name:
+                        print(f"✅ 확인: 기본 프린터가 '{printer_name}'로 정확히 설정되어 있습니다.")
+                        os.startfile(pdf_path, 'print')
+                        print(f"✅ PDF가 프린터로 전송되었습니다: {current_printer}")
+                        
+                        # 인쇄 완료 대기
+                        time.sleep(5)
+                        
+                        # 원래 기본 프린터로 복원
+                        try:
+                            win32print.SetDefaultPrinter(original_default)
+                            print(f"✅ 기본 프린터 복원 성공: {original_default}")
+                        except Exception as e2:
+                            print(f"⚠️ 기본 프린터 복원 실패: {e2}")
+                        
+                        logger.info(f"프린터 '{printer_name}'로 PDF 인쇄 성공")
+                        return True
+                    else:
+                        print(f"❌ 기본 프린터 변경 실패. 현재 프린터: {current_printer}")
+                        os.startfile(pdf_path, 'print')
+                        return True
+                        
+                except Exception as e2:
+                    print(f"❌ 기본 프린터 변경 방법도 실패: {e2}")
+                    print("기본 프린터로 인쇄합니다.")
+                    os.startfile(pdf_path, 'print')
+                    return True
             
         except ImportError:
             print("❌ win32print 모듈이 없습니다. pip install pywin32로 설치해주세요.")
@@ -243,6 +478,16 @@ class LabelPrinterGUI:
         # 인쇄 기록 저장
         self.print_history = []
         
+        # 라벨 크기 설정 (TXT 파일에서 읽기)
+        self.label_width_cm = 10.0  # 기본값
+        self.label_height_cm = 5.0  # 기본값
+        self.load_label_size_from_txt()
+        
+        # 폰트 설정 (TXT 파일에서 읽기)
+        self.font_name = "Arial"  # 기본값
+        self.font_size = 48  # 기본값
+        self.load_font_from_txt()
+        
         # 서버 IP 자동 감지
         self.server_ip = self.get_local_ip()
         self.server_port = self.find_available_port()
@@ -252,6 +497,80 @@ class LabelPrinterGUI:
         
         # 서버 시작
         self.start_server()
+    
+    def load_label_size_from_txt(self):
+        """TXT 파일에서 라벨 크기 읽기"""
+        try:
+            config_file = "label_size.txt"
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if 'width' in line.lower() or '너비' in line:
+                            try:
+                                # "width: 12" 또는 "너비: 12" 형식 파싱
+                                parts = line.split(':')
+                                if len(parts) == 2:
+                                    self.label_width_cm = float(parts[1].strip())
+                            except:
+                                pass
+                        elif 'height' in line.lower() or '높이' in line:
+                            try:
+                                parts = line.split(':')
+                                if len(parts) == 2:
+                                    self.label_height_cm = float(parts[1].strip())
+                            except:
+                                pass
+                        # 또는 "10,5" 형식으로 읽기
+                        elif ',' in line:
+                            try:
+                                parts = line.split(',')
+                                if len(parts) == 2:
+                                    self.label_width_cm = float(parts[0].strip())
+                                    self.label_height_cm = float(parts[1].strip())
+                            except:
+                                pass
+                print(f"라벨 크기 설정 로드: {self.label_width_cm}cm x {self.label_height_cm}cm")
+        except Exception as e:
+            print(f"라벨 크기 설정 파일 읽기 실패: {e}, 기본값 사용")
+    
+    def load_font_from_txt(self):
+        """TXT 파일에서 폰트 설정 읽기"""
+        try:
+            config_file = "label_size.txt"
+            if os.path.exists(config_file):
+                with open(config_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        # fontsize를 먼저 체크 (더 구체적인 조건)
+                        if 'fontsize' in line.lower() or '폰트크기' in line or 'font_size' in line.lower():
+                            try:
+                                parts = line.split(':')
+                                if len(parts) == 2:
+                                    self.font_size = int(float(parts[1].strip()))
+                            except:
+                                pass
+                        # font: 로 시작하는 줄만 체크 (fontsize 제외)
+                        elif line.lower().startswith('font:') or line.startswith('폰트:'):
+                            try:
+                                parts = line.split(':')
+                                if len(parts) == 2:
+                                    self.font_name = parts[1].strip()
+                            except:
+                                pass
+                print(f"폰트 설정 로드: {self.font_name} {self.font_size}pt")
+        except Exception as e:
+            print(f"폰트 설정 파일 읽기 실패: {e}, 기본값 사용")
+    
+    def on_font_changed(self, *args):
+        """폰트 변경 시 미리보기 업데이트"""
+        try:
+            self.font_name = self.font_name_var.get() or "Arial"
+            self.font_size = int(float(self.font_size_var.get() or "48"))
+            if hasattr(self, 'label_canvas'):
+                self.update_label_preview()
+        except (ValueError, AttributeError):
+            pass  # 잘못된 입력값 무시
     
     def get_local_ip(self):
         """로컬 IP 주소 자동 감지"""
@@ -375,19 +694,167 @@ class LabelPrinterGUI:
         self.date_label = ttk.Label(form_frame, textvariable=self.date_var, foreground="gray")
         self.date_label.grid(row=3, column=1, sticky=tk.W, pady=2, padx=(10, 0))
         
+        # 폰트 설정
+        font_frame = ttk.Frame(form_frame)
+        font_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=2)
+        
+        ttk.Label(font_frame, text="폰트:").pack(side=tk.LEFT, padx=(0, 5))
+        self.font_name_var = tk.StringVar(value=self.font_name)
+        font_name_combo = ttk.Combobox(font_frame, textvariable=self.font_name_var, width=15, state="readonly")
+        font_name_combo['values'] = ("Arial", "Helvetica", "Times New Roman", "Courier", "Georgia", "Verdana", "Comic Sans MS", "Impact")
+        font_name_combo.pack(side=tk.LEFT, padx=(0, 10))
+        self.font_name_var.trace_add('write', self.on_font_changed)
+        
+        ttk.Label(font_frame, text="크기:").pack(side=tk.LEFT, padx=(0, 5))
+        self.font_size_var = tk.StringVar(value=str(self.font_size))
+        font_size_entry = ttk.Entry(font_frame, textvariable=self.font_size_var, width=8)
+        font_size_entry.pack(side=tk.LEFT)
+        self.font_size_var.trace_add('write', self.on_font_changed)
+        
         # 프린터 선택
-        ttk.Label(form_frame, text="프린터 선택:").grid(row=4, column=0, sticky=tk.W, pady=2)
+        ttk.Label(form_frame, text="프린터 선택:").grid(row=5, column=0, sticky=tk.W, pady=2)
         self.printer_var = tk.StringVar()
         self.printer_combo = ttk.Combobox(form_frame, textvariable=self.printer_var, state="readonly", width=27)
-        self.printer_combo.grid(row=4, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
+        self.printer_combo.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
         
+        # 라벨 미리보기 영역 추가
+        self.setup_label_preview(form_frame)
+    
+    def setup_label_preview(self, parent):
+        """라벨 미리보기 Canvas 설정"""
+        preview_frame = ttk.LabelFrame(parent, text="라벨 미리보기", padding="10")
+        preview_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        
+        # Canvas 생성 (라벨 용지 사이즈에 맞게, 2배 크기로 미리보기)
+        # 1cm = 37.8 pixels @ 96 DPI
+        # 2배 미리보기: 1cm = 75.6 pixels
+        # 라벨 용지 사이즈 기준으로 캔버스 크기 설정
+        canvas_width = int(self.label_width_cm * 2 * 37.8)
+        canvas_height = int(self.label_height_cm * 2 * 37.8)
+        
+        self.label_canvas = tk.Canvas(preview_frame, width=canvas_width, height=canvas_height, 
+                                      bg="white", relief=tk.SUNKEN, borderwidth=2)
+        self.label_canvas.pack()
+        
+        # 데이터 변경 시 미리보기 업데이트
+        self.total_weight_var.trace_add('write', self.update_label_preview)
+        self.pallet_weight_var.trace_add('write', self.update_label_preview)
+        
+        # 초기 미리보기 그리기
+        self.update_label_preview()
+    
+    def update_label_preview(self, *args):
+        """라벨 미리보기 업데이트 - 테두리와 정가운데 무게만, 좌측 하단에 바코드"""
+        if not hasattr(self, 'label_canvas'):
+            return
+            
+        canvas = self.label_canvas
+        canvas.delete("all")
+        
+        # Canvas 실제 크기 가져오기 (라벨 용지 사이즈 기준)
+        canvas.update_idletasks()
+        # 라벨 용지 사이즈 기준 계산: 2배 미리보기
+        base_canvas_width = int(self.label_width_cm * 2 * 37.8)  # 1cm = 75.6 pixels (2배)
+        base_canvas_height = int(self.label_height_cm * 2 * 37.8)
+        
+        width = canvas.winfo_width() if canvas.winfo_width() > 1 else base_canvas_width
+        height = canvas.winfo_height() if canvas.winfo_height() > 1 else base_canvas_height
+        
+        # Canvas 크기에 비례하여 폰트 크기 조정 (라벨 용지 사이즈 기준)
+        base_font_size = self.font_size  # 설정된 폰트 크기 사용
+        # 라벨 용지 사이즈 기준 비율 계산 (2배 미리보기 기준)
+        scale = min(width / base_canvas_width, height / base_canvas_height)
+        
+        # 캔버스 시작 위치 오프셋 (테두리가 캔버스 가장자리에 바로 붙도록)
+        offset_x = 0
+        offset_y = 0
+        
+        # 배경 테두리 (캔버스 가장자리에 바로 그리기)
+        border_width = max(2, int(2 * scale))  # 스케일에 맞게 테두리 두께 조정
+        canvas.create_rectangle(0, 0, width, height, 
+                                outline="black", width=border_width)
+        
+        try:
+            # 데이터 가져오기
+            total_weight = self.total_weight_var.get() or "0"
+            pallet_weight = self.pallet_weight_var.get() or "0"
+            net_weight = float(total_weight) - float(pallet_weight) if total_weight and pallet_weight else 0
+            
+            # 순수무게만 정가운데 크게 표시
+            if net_weight > 0:
+                # 중앙에 숫자만 크게 표시
+                net_weight_number = f"{net_weight:.1f}"
+                font_size = max(20, int(base_font_size * scale))
+                
+                # 설정된 폰트 이름 사용
+                font_family = self.font_name if hasattr(self, 'font_name') else "Arial"
+                
+                # 중앙 위치 계산 (오프셋 고려)
+                center_x = width / 2
+                center_y = height / 2
+                
+                canvas.create_text(center_x, center_y, text=net_weight_number,
+                                 font=(font_family, font_size, "bold"), fill="black")
+                
+                # 우측 하단에 "kg" 작게 표시
+                kg_font_size = max(12, int(base_font_size * scale * 0.3))
+                canvas.create_text(width - 10, height - 10, text="kg",
+                                 font=(font_family, kg_font_size), fill="black", anchor="se")
+                
+                # 바코드: 순수무게를 바코드로 변환 (좌측 하단)
+                # 무게 값을 바코드 문자열로 변환 (소수점 제거)
+                barcode_value = f"{net_weight:.1f}".replace(".", "").zfill(6)  # 최소 6자리로 패딩
+                
+                # 실제 바코드 이미지 생성 시도
+                try:
+                    from barcode import Code128
+                    from barcode.writer import ImageWriter
+                    import io
+                    
+                    # 바코드 이미지 생성
+                    barcode_image = Code128(barcode_value, writer=ImageWriter())
+                    barcode_buffer = io.BytesIO()
+                    barcode_image.write(barcode_buffer)
+                    barcode_buffer.seek(0)
+                    
+                    # PIL Image로 변환
+                    from PIL import Image as PILImage
+                    barcode_pil = PILImage.open(barcode_buffer)
+                    
+                    # 바코드 크기 조정 (좌측 하단에 배치) - 사이즈 키움
+                    barcode_height = int(height * 0.25)  # 높이의 25% (15% → 25%로 증가)
+                    barcode_aspect = barcode_pil.width / barcode_pil.height
+                    barcode_width = int(barcode_height * barcode_aspect)
+                    barcode_resized = barcode_pil.resize((barcode_width, barcode_height), PILImage.Resampling.LANCZOS)
+                    
+                    # Canvas에 바코드 이미지 추가 (좌측 하단)
+                    from PIL import ImageTk
+                    barcode_tk = ImageTk.PhotoImage(barcode_resized)
+                    canvas.create_image(10, height - int(barcode_height/2) - 10, 
+                                       anchor="sw", image=barcode_tk)
+                    canvas.barcode_image = barcode_tk  # 참조 유지
+                    
+                except ImportError:
+                    # barcode 라이브러리가 없으면 텍스트로 표시
+                    barcode_font_size = max(10, int(12 * scale))
+                    canvas.create_text(10, height - 10, text=barcode_value,
+                                     anchor="w", font=("Arial", barcode_font_size), fill="black")
+                except Exception as e:
+                    # 바코드 생성 실패 시 텍스트로 표시
+                    print(f"바코드 생성 실패: {e}")
+                    barcode_font_size = max(10, int(12 * scale))
+                    canvas.create_text(10, height - 10, text=barcode_value,
+                                     anchor="w", font=("Arial", barcode_font_size), fill="black")
+        except Exception as e:
+            print(f"미리보기 업데이트 오류: {e}")
+            pass  # 데이터가 없으면 그냥 빈 캔버스
+    
     def setup_buttons(self, parent):
         """버튼들"""
         button_frame = ttk.Frame(parent)
         button_frame.grid(row=3, column=0, columnspan=2, pady=10)
         
         ttk.Button(button_frame, text="라벨 인쇄", command=self.print_label).pack(side=tk.LEFT, padx=5)
-        ttk.Button(button_frame, text="미리보기", command=self.preview_label).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="초기화", command=self.reset_form).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="PDF 저장", command=self.save_pdf).pack(side=tk.LEFT, padx=5)
         
@@ -417,17 +884,17 @@ class LabelPrinterGUI:
             net_weight = total_weight - pallet_weight
             
             if net_weight > 0:
-                self.net_weight_var.set(f"{net_weight:.2f} kg")
+                self.net_weight_var.set(f"{net_weight:.1f} kg")
             else:
-                self.net_weight_var.set("0.00 kg")
+                self.net_weight_var.set("0.0 kg")
         except ValueError:
-            self.net_weight_var.set("0.00 kg")
+            self.net_weight_var.set("0.0 kg")
     
     def reset_form(self):
         """폼 초기화"""
         self.total_weight_var.set("")
         self.pallet_weight_var.set("")
-        self.net_weight_var.set("0.00 kg")
+        self.net_weight_var.set("0.0 kg")
         self.date_var.set(datetime.now().strftime('%Y-%m-%d'))
         
     def get_label_data(self):
@@ -442,8 +909,8 @@ class LabelPrinterGUI:
         return {
             'total_weight': self.total_weight_var.get(),
             'pallet_weight': self.pallet_weight_var.get(),
-            'net_weight': f"{net_weight:.2f}",
-            'weight': f"{net_weight:.2f}",  # 라벨에 표시될 무게 (순수무게)
+            'net_weight': f"{net_weight:.1f}",
+            'weight': f"{net_weight:.1f}",  # 라벨에 표시될 무게 (순수무게)
             'date': self.date_var.get(),
             'printer': self.printer_var.get(),
             'product_name': '제품'  # 기본값
@@ -486,62 +953,267 @@ class LabelPrinterGUI:
         return True
         
     def print_label(self):
-        """라벨 인쇄"""
+        """라벨 인쇄 - Canvas를 이미지로 캡처하여 직접 인쇄"""
         data = self.get_label_data()
         
         if not self.validate_data(data):
             return
             
         try:
-            # PDF 생성
-            pdf_path = self.printer.create_label_pdf(data)
+            # Canvas 미리보기 업데이트 (최신 데이터 반영)
+            self.update_label_preview()
             
             # 실제 프린터 이름 가져오기
             display_name = data['printer']
             actual_printer_name = self.printer_names.get(display_name, None)
             
-            # 디버깅 정보 출력
-            print(f"선택된 프린터 표시명: {display_name}")
-            print(f"실제 프린터명: {actual_printer_name}")
-            print(f"사용 가능한 프린터 매핑: {self.printer_names}")
+            if not actual_printer_name:
+                messagebox.showerror("오류", "프린터를 선택해주세요.")
+                return
             
-            # 인쇄 실행 (라벨 데이터도 함께 전달)
-            success = self.printer.print_label(pdf_path, actual_printer_name, data)
+            print(f"선택된 프린터: {actual_printer_name}")
+            
+            # 라벨 용지 사이즈에 맞게 PIL Image로 직접 생성 (고정 크기, 화면 해상도 무관)
+            from PIL import Image, ImageDraw, ImageFont
+            import tempfile
+            
+            # 임시 파일 경로 생성
+            temp_canvas_path = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+            temp_img_path = temp_canvas_path.name
+            temp_canvas_path.close()
+            
+            # 300 DPI 기준으로 라벨 용지 사이즈에 맞는 절대적인 크기 계산
+            # 1cm = 118.11 pixels @ 300 DPI
+            target_width = int(self.label_width_cm * 118.11)  # 300 DPI 기준
+            target_height = int(self.label_height_cm * 118.11)
+            
+            print(f"라벨 용지 사이즈: {self.label_width_cm}cm x {self.label_height_cm}cm")
+            print(f"인쇄 목표 크기 (300 DPI): {target_width} x {target_height} 픽셀")
+            
+            # PIL Image 생성 (화이트 배경)
+            img = Image.new('RGB', (target_width, target_height), 'white')
+            draw = ImageDraw.Draw(img)
+            
+            # 데이터 가져오기
+            total_weight = data['total_weight'] or "0"
+            pallet_weight = data['pallet_weight'] or "0"
+            net_weight = float(total_weight) - float(pallet_weight) if total_weight and pallet_weight else 0
+            
+            # 테두리가 이미지 가장자리에 바로 붙도록 오프셋 제거
+            offset_px = 0
+            
+            if net_weight > 0:
+                # 1. 테두리 그리기 (이미지 가장자리에 바로)
+                border_width = 3
+                draw.rectangle([0, 0, target_width, target_height], 
+                             outline='black', width=border_width)
+                
+                # 2. 중앙에 숫자 그리기 (캔버스 미리보기와 동일한 비율로 계산)
+                net_weight_number = f"{net_weight:.1f}"
+                
+                # 캔버스 미리보기와 동일한 폰트 크기 계산 방식 사용
+                # 캔버스: 2배 미리보기 기준 (96 DPI)
+                # - base_canvas_width = label_width_cm * 2 * 37.8
+                # - scale = width / base_canvas_width
+                # - font_size = base_font_size * scale
+                #
+                # 인쇄: 300 DPI 기준
+                # - target_width = label_width_cm * 118.11 (300 DPI)
+                # - 캔버스와 동일한 비율을 적용하기 위해:
+                #   canvas_scale = target_width / (label_width_cm * 2 * 37.8 * 2)
+                #   실제로는 300 DPI에서의 실제 크기로 조정
+                
+                base_font_size = self.font_size
+                
+                # 캔버스 미리보기 기준 계산
+                # 캔버스는 2배 스케일 미리보기: base_canvas_width = label_width_cm * 2 * 37.8
+                # 실제 인쇄 크기는: target_width = label_width_cm * 118.11
+                # 비율: target_width / (label_width_cm * 2 * 37.8) = 118.11 / (2 * 37.8) ≈ 1.56
+                
+                # 하지만 더 정확하게는, 캔버스에서 사용하는 폰트 크기와 동일한 비율로 맞추기
+                # 캔버스에서: font_size = base_font_size * scale (scale은 캔버스 크기 비율)
+                # 인쇄에서도 동일한 비율 적용
+                
+                # 캔버스 기준 너비 (2배 미리보기): label_width_cm * 2 * 37.8
+                canvas_base_width = self.label_width_cm * 2 * 37.8
+                # 인쇄 크기 대비 캔버스 크기 비율
+                scale_ratio = target_width / canvas_base_width
+                
+                # 캔버스에서 사용하는 폰트 크기 계산 방식 적용
+                # 캔버스에서 scale은 실제 캔버스 크기 / base_canvas_width
+                # 인쇄에서는 동일한 비율 적용
+                font_size = int(base_font_size * scale_ratio)
+                font_size = max(20, font_size)  # 최소 크기 보장
+                
+                # 폰트 로드 시도 (설정된 폰트 이름 사용, 볼드 버전)
+                # 캔버스에서는 "bold" 스타일을 사용하므로, PIL에서도 볼드 폰트 파일 사용
+                font_name = self.font_name if hasattr(self, 'font_name') else "Arial"
+                
+                # 폰트 파일 매핑 (볼드 버전 포함)
+                font_file_map = {
+                    "Arial": "arialbd.ttf",  # bold 버전
+                    "Times New Roman": "timesbd.ttf",  # bold 버전
+                    "Courier": "courbd.ttf",  # bold 버전
+                    "Georgia": "georgiab.ttf",  # bold 버전 (있다면)
+                    "Verdana": "verdanab.ttf",  # bold 버전 (있다면)
+                    "Helvetica": "arialbd.ttf",  # Helvetica는 Arial로 대체
+                }
+                
+                # 일반 버전 매핑 (볼드가 없을 경우 대체)
+                font_file_map_normal = {
+                    "Arial": "arial.ttf",
+                    "Times New Roman": "times.ttf",
+                    "Courier": "cour.ttf",
+                    "Georgia": "georgia.ttf",
+                    "Verdana": "verdana.ttf",
+                    "Helvetica": "arial.ttf",
+                }
+                
+                # 볼드 폰트 파일 우선 시도
+                font_file = font_file_map.get(font_name, "arialbd.ttf")
+                font_paths = [
+                    f"C:/Windows/Fonts/{font_file}",
+                    f"C:/Windows/Fonts/{font_file_map_normal.get(font_name, 'arial.ttf')}",  # 일반 버전 fallback
+                    "C:/Windows/Fonts/arialbd.ttf",  # 최종 fallback
+                    "C:/Windows/Fonts/arial.ttf",
+                ]
+                
+                font = None
+                for font_path in font_paths:
+                    try:
+                        if os.path.exists(font_path):
+                            font = ImageFont.truetype(font_path, font_size)
+                            print(f"폰트 로드 성공: {font_path}, 크기: {font_size}")
+                            break
+                    except Exception as e:
+                        continue
+                
+                if font is None:
+                    print("⚠️ 폰트 로드 실패, 기본 폰트 사용")
+                    font = ImageFont.load_default()
+                
+                # 텍스트 크기 측정 및 정확한 중앙 정렬
+                # textbbox는 (left, top, right, bottom) 반환
+                # top은 음수일 수 있음 (기준선 위쪽 여백)
+                # PIL의 text() 메서드는 y 좌표를 기준선(baseline)으로 사용
+                
+                # 텍스트 바운딩 박스 측정 (기준선을 0으로 가정)
+                bbox = draw.textbbox((0, 0), net_weight_number, font=font)
+                
+                # bbox: (left, top, right, bottom)
+                # top은 기준선 위쪽 거리 (보통 음수)
+                # bottom은 기준선 아래쪽 거리 (보통 양수)
+                left, top, right, bottom = bbox
+                
+                text_width = right - left
+                text_height = bottom - top  # 전체 높이 (위쪽 + 아래쪽)
+                
+                # 기준선(baseline)에서 텍스트 중앙까지의 거리
+                # top이 음수이므로, 중앙은 (top + bottom) / 2
+                text_center_from_baseline = (top + bottom) / 2
+                
+                # 중앙 위치
+                center_x = target_width / 2
+                center_y = target_height / 2
+                
+                # 텍스트를 정확히 중앙에 배치
+                # baseline_y = center_y - text_center_from_baseline
+                text_x = center_x - text_width / 2
+                text_y = center_y - text_center_from_baseline
+                
+                # 숫자 그리기 (정확한 중앙 정렬)
+                draw.text((text_x, text_y), net_weight_number, fill='black', font=font)
+                
+                # 3. 우측 하단에 "kg" 작게 표시
+                kg_font_size = int(font_size * 0.3)
+                try:
+                    kg_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", kg_font_size)
+                except:
+                    kg_font = ImageFont.load_default()
+                
+                kg_bbox = draw.textbbox((0, 0), "kg", font=kg_font)
+                kg_width = kg_bbox[2] - kg_bbox[0]
+                kg_height = kg_bbox[3] - kg_bbox[1]
+                
+                draw.text((target_width - 10 - kg_width, 
+                          target_height - 10 - kg_height), 
+                         "kg", fill='black', font=kg_font)
+                
+                # 4. 바코드: 좌측 하단 (라벨 용지 사이즈에 비례한 절대적인 크기)
+                barcode_value = f"{net_weight:.1f}".replace(".", "").zfill(6)
+                
+                try:
+                    from barcode import Code128
+                    from barcode.writer import ImageWriter
+                    import io
+                    
+                    # 바코드 이미지 생성
+                    barcode_image = Code128(barcode_value, writer=ImageWriter())
+                    barcode_buffer = io.BytesIO()
+                    barcode_image.write(barcode_buffer)
+                    barcode_buffer.seek(0)
+                    
+                    # PIL Image로 변환
+                    from PIL import Image as PILImage
+                    barcode_pil = PILImage.open(barcode_buffer)
+                    
+                    # 바코드 크기 조정 (라벨 높이의 25%)
+                    barcode_height = int(target_height * 0.25)
+                    barcode_aspect = barcode_pil.width / barcode_pil.height
+                    barcode_width = int(barcode_height * barcode_aspect)
+                    barcode_resized = barcode_pil.resize((barcode_width, barcode_height), 
+                                                        PILImage.Resampling.LANCZOS)
+                    
+                    # 바코드를 좌측 하단에 배치
+                    barcode_x = 10
+                    barcode_y = target_height - 10 - barcode_height
+                    
+                    img.paste(barcode_resized, (barcode_x, barcode_y))
+                    
+                except Exception as e:
+                    # 바코드 생성 실패 시 텍스트로 표시
+                    print(f"바코드 생성 실패: {e}")
+                    barcode_font_size = int(target_height * 0.05)
+                    try:
+                        barcode_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", barcode_font_size)
+                    except:
+                        barcode_font = ImageFont.load_default()
+                    
+                    draw.text((10, target_height - 10), 
+                             barcode_value, fill='black', font=barcode_font)
+            
+            # 이미지 저장 (300 DPI)
+            img.save(temp_img_path, 'PNG', dpi=(300, 300))
+            print(f"✅ PIL Image 직접 생성 완료: {target_width} x {target_height} 픽셀 (300 DPI)")
+            print(f"이미지 파일: {temp_img_path}")
+            
+            # 이미지를 프린터로 직접 전송 (Word/한글 방식)
+            # 라벨용지 사이즈 전달하여 정확한 크기로 인쇄
+            success = self.printer.print_image(temp_img_path, actual_printer_name, 
+                                               label_width_cm=self.label_width_cm, 
+                                               label_height_cm=self.label_height_cm)
+            
+            # 임시 파일 삭제
+            try:
+                os.remove(temp_ps_path)
+            except:
+                pass
+            try:
+                os.remove(temp_img_path)
+            except:
+                pass
             
             if success:
                 # 인쇄 기록 저장
                 self.save_print_record(data)
-                
-                # 프린터 타입에 따른 메시지
-                if actual_printer_name:
-                    messagebox.showinfo("성공", f"프린터 '{actual_printer_name}'로 라벨이 성공적으로 인쇄되었습니다.")
-                else:
-                    messagebox.showinfo("성공", "라벨이 성공적으로 인쇄되었습니다.\n(기본 프린터로 인쇄됨)")
+                messagebox.showinfo("성공", f"프린터 '{actual_printer_name}'로 라벨이 성공적으로 인쇄되었습니다.")
             else:
                 messagebox.showerror("오류", "인쇄에 실패했습니다. 프린터 설정을 확인해주세요.")
                 
         except Exception as e:
+            import traceback
+            traceback.print_exc()
             messagebox.showerror("오류", f"인쇄 중 오류가 발생했습니다: {str(e)}")
-            
-    def preview_label(self):
-        """라벨 미리보기"""
-        data = self.get_label_data()
-        
-        if not self.validate_data(data):
-            return
-            
-        try:
-            # PDF 생성
-            pdf_path = self.printer.create_label_pdf(data)
-            
-            # PDF 뷰어로 열기
-            if os.name == 'posix':
-                subprocess.run(['open', pdf_path])  # macOS
-            else:
-                os.startfile(pdf_path)  # Windows
-                
-        except Exception as e:
-            messagebox.showerror("오류", f"미리보기 생성 중 오류가 발생했습니다: {str(e)}")
             
     def save_pdf(self):
         """PDF 파일로 저장"""
@@ -770,8 +1442,8 @@ class LabelPrinterGUI:
                     }), 400
                 
                 # 기본값 설정
-                data['net_weight'] = f"{net_weight:.2f}"
-                data['weight'] = f"{net_weight:.2f}"  # 라벨에 표시될 무게
+                data['net_weight'] = f"{net_weight:.1f}"
+                data['weight'] = f"{net_weight:.1f}"  # 라벨에 표시될 무게
                 if not data.get('date'):
                     data['date'] = datetime.now().strftime('%Y-%m-%d')
                 if not data.get('product_name'):
