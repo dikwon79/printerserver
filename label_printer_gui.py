@@ -1451,9 +1451,6 @@ class LabelPrinterGUI:
                 if not data.get('printer'):
                     data['printer'] = '기본 프린터'
                 
-                # PDF 생성
-                pdf_path = self.printer.create_label_pdf(data)
-                
                 # 실제 프린터 이름 가져오기
                 display_name = data.get('printer', '기본 프린터')
                 
@@ -1466,8 +1463,165 @@ class LabelPrinterGUI:
                 print(f"API 인쇄 - 선택된 프린터: {display_name}")
                 print(f"API 인쇄 - 실제 프린터명: {actual_printer_name}")
                 
-                # 인쇄 실행 (라벨 데이터도 함께 전달)
-                success = self.printer.print_label(pdf_path, actual_printer_name, data)
+                # 이미지 직접 생성 방식으로 인쇄 (GUI와 동일)
+                from PIL import Image, ImageDraw, ImageFont
+                import tempfile
+                
+                # 임시 파일 경로 생성
+                temp_img_file = tempfile.NamedTemporaryFile(suffix='.png', delete=False)
+                temp_img_path = temp_img_file.name
+                temp_img_file.close()
+                
+                # 300 DPI 기준으로 라벨 용지 사이즈에 맞는 절대적인 크기 계산
+                target_width = int(self.label_width_cm * 118.11)  # 300 DPI 기준
+                target_height = int(self.label_height_cm * 118.11)
+                
+                print(f"API 인쇄 - 라벨 용지 사이즈: {self.label_width_cm}cm x {self.label_height_cm}cm")
+                print(f"API 인쇄 - 목표 크기 (300 DPI): {target_width} x {target_height} 픽셀")
+                
+                # PIL Image 생성 (화이트 배경)
+                img = Image.new('RGB', (target_width, target_height), 'white')
+                draw = ImageDraw.Draw(img)
+                
+                # 순수무게 사용
+                total_weight_str = data.get('total_weight', '0')
+                pallet_weight_str = data.get('pallet_weight', '0')
+                net_weight = float(total_weight_str) - float(pallet_weight_str) if total_weight_str and pallet_weight_str else 0
+                
+                if net_weight > 0:
+                    # 1. 테두리 그리기
+                    border_width = 3
+                    draw.rectangle([0, 0, target_width, target_height], 
+                                 outline='black', width=border_width)
+                    
+                    # 2. 중앙에 숫자 그리기
+                    net_weight_number = f"{net_weight:.1f}"
+                    
+                    # 폰트 크기 계산 (GUI와 동일한 방식)
+                    base_font_size = self.font_size
+                    canvas_base_width = self.label_width_cm * 2 * 37.8
+                    scale_ratio = target_width / canvas_base_width
+                    font_size = int(base_font_size * scale_ratio)
+                    font_size = max(20, font_size)
+                    
+                    # 폰트 로드
+                    font_name = self.font_name if hasattr(self, 'font_name') else "Arial"
+                    font_file_map = {
+                        "Arial": "arialbd.ttf",
+                        "Times New Roman": "timesbd.ttf",
+                        "Courier": "courbd.ttf",
+                        "Georgia": "georgiab.ttf",
+                        "Verdana": "verdanab.ttf",
+                        "Helvetica": "arialbd.ttf",
+                    }
+                    font_file_map_normal = {
+                        "Arial": "arial.ttf",
+                        "Times New Roman": "times.ttf",
+                        "Courier": "cour.ttf",
+                        "Georgia": "georgia.ttf",
+                        "Verdana": "verdana.ttf",
+                        "Helvetica": "arial.ttf",
+                    }
+                    
+                    font_file = font_file_map.get(font_name, "arialbd.ttf")
+                    font_paths = [
+                        f"C:/Windows/Fonts/{font_file}",
+                        f"C:/Windows/Fonts/{font_file_map_normal.get(font_name, 'arial.ttf')}",
+                        "C:/Windows/Fonts/arialbd.ttf",
+                        "C:/Windows/Fonts/arial.ttf",
+                    ]
+                    
+                    font = None
+                    for font_path in font_paths:
+                        try:
+                            if os.path.exists(font_path):
+                                font = ImageFont.truetype(font_path, font_size)
+                                break
+                        except:
+                            continue
+                    
+                    if font is None:
+                        font = ImageFont.load_default()
+                    
+                    # 텍스트 중앙 정렬
+                    bbox = draw.textbbox((0, 0), net_weight_number, font=font)
+                    left, top, right, bottom = bbox
+                    text_width = right - left
+                    text_center_from_baseline = (top + bottom) / 2
+                    
+                    center_x = target_width / 2
+                    center_y = target_height / 2
+                    text_x = center_x - text_width / 2
+                    text_y = center_y - text_center_from_baseline
+                    
+                    draw.text((text_x, text_y), net_weight_number, fill='black', font=font)
+                    
+                    # 3. 우측 하단에 "kg" 표시
+                    kg_font_size = int(font_size * 0.3)
+                    try:
+                        kg_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", kg_font_size)
+                    except:
+                        kg_font = ImageFont.load_default()
+                    
+                    kg_bbox = draw.textbbox((0, 0), "kg", font=kg_font)
+                    kg_width = kg_bbox[2] - kg_bbox[0]
+                    kg_height = kg_bbox[3] - kg_bbox[1]
+                    
+                    draw.text((target_width - 10 - kg_width, 
+                              target_height - 10 - kg_height), 
+                             "kg", fill='black', font=kg_font)
+                    
+                    # 4. 바코드: 좌측 하단
+                    barcode_value = f"{net_weight:.1f}".replace(".", "").zfill(6)
+                    
+                    try:
+                        from barcode import Code128
+                        from barcode.writer import ImageWriter
+                        import io
+                        
+                        barcode_image = Code128(barcode_value, writer=ImageWriter())
+                        barcode_buffer = io.BytesIO()
+                        barcode_image.write(barcode_buffer)
+                        barcode_buffer.seek(0)
+                        
+                        from PIL import Image as PILImage
+                        barcode_pil = PILImage.open(barcode_buffer)
+                        
+                        barcode_height = int(target_height * 0.25)
+                        barcode_aspect = barcode_pil.width / barcode_pil.height
+                        barcode_width = int(barcode_height * barcode_aspect)
+                        barcode_resized = barcode_pil.resize((barcode_width, barcode_height), 
+                                                            PILImage.Resampling.LANCZOS)
+                        
+                        barcode_x = 10
+                        barcode_y = target_height - 10 - barcode_height
+                        img.paste(barcode_resized, (barcode_x, barcode_y))
+                        
+                    except Exception as e:
+                        print(f"바코드 생성 실패: {e}")
+                        barcode_font_size = int(target_height * 0.05)
+                        try:
+                            barcode_font = ImageFont.truetype("C:/Windows/Fonts/arial.ttf", barcode_font_size)
+                        except:
+                            barcode_font = ImageFont.load_default()
+                        
+                        draw.text((10, target_height - 10), 
+                                 barcode_value, fill='black', font=barcode_font)
+                
+                # 이미지 저장 (300 DPI)
+                img.save(temp_img_path, 'PNG', dpi=(300, 300))
+                print(f"✅ API 인쇄 - PIL Image 생성 완료: {target_width} x {target_height} 픽셀 (300 DPI)")
+                
+                # 이미지를 프린터로 직접 전송 (Word/한글 방식)
+                success = self.printer.print_image(temp_img_path, actual_printer_name, 
+                                                   label_width_cm=self.label_width_cm, 
+                                                   label_height_cm=self.label_height_cm)
+                
+                # 임시 파일 삭제
+                try:
+                    os.remove(temp_img_path)
+                except:
+                    pass
                 
                 if success:
                     # 인쇄 기록 저장
