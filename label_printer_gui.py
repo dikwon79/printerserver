@@ -7,6 +7,7 @@ import os
 import tempfile
 import subprocess
 import socket
+import json
 from reportlab.pdfgen import canvas
 from reportlab.lib.units import cm
 from reportlab.lib.pagesizes import A4
@@ -464,7 +465,7 @@ class LabelPrinterGUI:
     def __init__(self, root):
         self.root = root
         self.root.title("라벨 인쇄 프로그램")
-        self.root.geometry("600x700")
+        self.root.geometry("1400x900")
         self.root.resizable(True, True)
         
         # 프린터 인스턴스
@@ -477,6 +478,10 @@ class LabelPrinterGUI:
         
         # 인쇄 기록 저장
         self.print_history = []
+        
+        # 양식 데이터 저장
+        self.production_records = []
+        self.load_production_records()
         
         # 라벨 크기 설정 (TXT 파일에서 읽기)
         self.label_width_cm = 10.0  # 기본값
@@ -626,30 +631,46 @@ class LabelPrinterGUI:
         
     def setup_gui(self):
         """GUI 구성"""
-        # 메인 프레임
-        main_frame = ttk.Frame(self.root, padding="10")
-        main_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
+        # 메인 프레임 (전체 레이아웃)
+        main_container = ttk.Frame(self.root, padding="10")
+        main_container.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
         
-        # 제목
-        title_label = ttk.Label(main_frame, text="라벨 인쇄 프로그램", font=("Arial", 16, "bold"))
+        # 왼쪽 프레임 (라벨 입력 폼)
+        left_frame = ttk.Frame(main_container, padding="10")
+        left_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S), padx=(0, 10))
+        
+        # 오른쪽 프레임 (양식 입력 폼)
+        right_frame = ttk.LabelFrame(main_container, text="Daily Bulk Production Sheet", padding="5")
+        right_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N, tk.S))
+        
+        # 제목 (왼쪽)
+        title_label = ttk.Label(left_frame, text="라벨 인쇄 프로그램", font=("Arial", 16, "bold"))
         title_label.grid(row=0, column=0, columnspan=2, pady=(0, 20))
         
         # 서버 상태
-        self.setup_server_status(main_frame)
+        self.setup_server_status(left_frame)
         
         # 라벨 입력 폼
-        self.setup_label_form(main_frame)
+        self.setup_label_form(left_frame)
         
         # 버튼들
-        self.setup_buttons(main_frame)
+        self.setup_buttons(left_frame)
         
         # 프린터 정보
-        self.setup_printer_info(main_frame)
+        self.setup_printer_info(left_frame)
         
-        # 그리드 가중치 설정
+        # 오른쪽에 양식 입력 폼 추가
+        self.setup_production_form_inline(right_frame)
+        
+        # 그리드 가중치 설정 (왼쪽:오른쪽 = 1:3로 조정)
         self.root.columnconfigure(0, weight=1)
         self.root.rowconfigure(0, weight=1)
-        main_frame.columnconfigure(1, weight=1)
+        main_container.columnconfigure(0, weight=1)  # 왼쪽 프레임
+        main_container.columnconfigure(1, weight=3)  # 오른쪽 프레임을 더 크게
+        main_container.rowconfigure(0, weight=1)
+        left_frame.columnconfigure(1, weight=1)
+        right_frame.columnconfigure(0, weight=1)
+        right_frame.rowconfigure(0, weight=1)
         
     def setup_server_status(self, parent):
         """서버 상태 섹션"""
@@ -671,14 +692,14 @@ class LabelPrinterGUI:
         # 총무게
         ttk.Label(form_frame, text="총무게 (kg):").grid(row=0, column=0, sticky=tk.W, pady=2)
         self.total_weight_var = tk.StringVar()
-        self.total_weight_entry = ttk.Entry(form_frame, textvariable=self.total_weight_var, width=30)
+        self.total_weight_entry = ttk.Entry(form_frame, textvariable=self.total_weight_var, width=15)
         self.total_weight_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
         self.total_weight_var.trace_add('write', self.calculate_net_weight)
         
         # 팔렛무게
         ttk.Label(form_frame, text="팔렛무게 (kg):").grid(row=1, column=0, sticky=tk.W, pady=2)
         self.pallet_weight_var = tk.StringVar()
-        self.pallet_weight_entry = ttk.Entry(form_frame, textvariable=self.pallet_weight_var, width=30)
+        self.pallet_weight_entry = ttk.Entry(form_frame, textvariable=self.pallet_weight_var, width=15)
         self.pallet_weight_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
         self.pallet_weight_var.trace_add('write', self.calculate_net_weight)
         
@@ -714,7 +735,7 @@ class LabelPrinterGUI:
         # 프린터 선택
         ttk.Label(form_frame, text="프린터 선택:").grid(row=5, column=0, sticky=tk.W, pady=2)
         self.printer_var = tk.StringVar()
-        self.printer_combo = ttk.Combobox(form_frame, textvariable=self.printer_var, state="readonly", width=27)
+        self.printer_combo = ttk.Combobox(form_frame, textvariable=self.printer_var, state="readonly", width=15)
         self.printer_combo.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
         
         # 라벨 미리보기 영역 추가
@@ -722,15 +743,15 @@ class LabelPrinterGUI:
     
     def setup_label_preview(self, parent):
         """라벨 미리보기 Canvas 설정"""
-        preview_frame = ttk.LabelFrame(parent, text="라벨 미리보기", padding="10")
+        preview_frame = ttk.LabelFrame(parent, text="라벨 미리보기", padding="5")
         preview_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         
-        # Canvas 생성 (라벨 용지 사이즈에 맞게, 2배 크기로 미리보기)
+        # Canvas 생성 (라벨 용지 사이즈에 맞게, 1.5배 크기로 미리보기 - 더 작게)
         # 1cm = 37.8 pixels @ 96 DPI
-        # 2배 미리보기: 1cm = 75.6 pixels
+        # 1.5배 미리보기: 1cm = 56.7 pixels
         # 라벨 용지 사이즈 기준으로 캔버스 크기 설정
-        canvas_width = int(self.label_width_cm * 2 * 37.8)
-        canvas_height = int(self.label_height_cm * 2 * 37.8)
+        canvas_width = int(self.label_width_cm * 1.5 * 37.8)
+        canvas_height = int(self.label_height_cm * 1.5 * 37.8)
         
         self.label_canvas = tk.Canvas(preview_frame, width=canvas_width, height=canvas_height, 
                                       bg="white", relief=tk.SUNKEN, borderwidth=2)
@@ -753,17 +774,31 @@ class LabelPrinterGUI:
         
         # Canvas 실제 크기 가져오기 (라벨 용지 사이즈 기준)
         canvas.update_idletasks()
-        # 라벨 용지 사이즈 기준 계산: 2배 미리보기
-        base_canvas_width = int(self.label_width_cm * 2 * 37.8)  # 1cm = 75.6 pixels (2배)
-        base_canvas_height = int(self.label_height_cm * 2 * 37.8)
+        # 라벨 용지 사이즈 기준 계산: 1.5배 미리보기
+        base_canvas_width = int(self.label_width_cm * 1.5 * 37.8)  # 1cm = 56.7 pixels (1.5배)
+        base_canvas_height = int(self.label_height_cm * 1.5 * 37.8)
         
         width = canvas.winfo_width() if canvas.winfo_width() > 1 else base_canvas_width
         height = canvas.winfo_height() if canvas.winfo_height() > 1 else base_canvas_height
         
-        # Canvas 크기에 비례하여 폰트 크기 조정 (라벨 용지 사이즈 기준)
+        # 실제 인쇄 크기 (300 DPI 기준)와 미리보기 캔버스 크기 (96 DPI 기준)의 비율 계산
+        # 실제 인쇄: label_width_cm * 118.11 pixels (300 DPI에서 1cm = 118.11 pixels)
+        # 미리보기: label_width_cm * 1.5 * 37.8 pixels (96 DPI에서 1cm = 37.8 pixels, 1.5배)
+        # 미리보기 / 실제 인쇄 = (1.5 * 37.8) / 118.11 ≈ 0.48
+        # 따라서 폰트 크기도 이 비율로 조정해야 함
+        
+        # 실제 인쇄 시 사용할 크기 (300 DPI 기준)
+        actual_print_width = self.label_width_cm * 118.11
+        actual_print_height = self.label_height_cm * 118.11
+        
+        # 미리보기 캔버스 크기와 실제 인쇄 크기의 비율
+        width_ratio = width / actual_print_width
+        height_ratio = height / actual_print_height
+        # 폰트 크기는 작은 비율을 사용 (어느 쪽이든 넘치지 않도록)
+        scale = min(width_ratio, height_ratio)
+        
+        # Canvas 크기에 비례하여 폰트 크기 조정
         base_font_size = self.font_size  # 설정된 폰트 크기 사용
-        # 라벨 용지 사이즈 기준 비율 계산 (2배 미리보기 기준)
-        scale = min(width / base_canvas_width, height / base_canvas_height)
         
         # 캔버스 시작 위치 오프셋 (테두리가 캔버스 가장자리에 바로 붙도록)
         offset_x = 0
@@ -857,6 +892,7 @@ class LabelPrinterGUI:
         ttk.Button(button_frame, text="라벨 인쇄", command=self.print_label).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="초기화", command=self.reset_form).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="PDF 저장", command=self.save_pdf).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="양식 기록", command=self.open_production_form).pack(side=tk.LEFT, padx=5)
         
     def setup_printer_info(self, parent):
         """프린터 정보"""
@@ -875,7 +911,330 @@ class LabelPrinterGUI:
         
         # 초기 프린터 목록 로드
         self.refresh_printers()
+    
+    def setup_production_form_inline(self, parent):
+        """Daily Bulk Production Sheet 양식을 오른쪽에 인라인으로 표시"""
+        # 저장 버튼 (상단에 먼저 배치)
+        button_frame = ttk.Frame(parent)
+        button_frame.pack(pady=5, fill=tk.X)
         
+        def save_inline_form():
+            """양식 데이터 저장"""
+            record = {
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'date': self.form_data_inline['date'].get(),
+                'shift': self.form_data_inline['shift'].get(),
+                'supervisor_name': self.form_data_inline['supervisor_name'].get(),
+                'employee_name': self.form_data_inline['employee_name'].get(),
+                'product_name': self.form_data_inline['product_name'].get(),
+                'bulk_lot_code': self.form_data_inline['bulk_lot_code'].get(),
+                'parchment_reuse': self.form_data_inline['parchment_reuse'].get(),
+                'parchment_lot_code': self.form_data_inline['parchment_lot_code'].get(),
+                'quantity': self.form_data_inline['quantity'].get(),
+                'quality_checked': self.form_data_inline['quality_checked'].get(),
+                'production_table': [
+                    {
+                        'bulk_plastic_bag_lot_codes': row['bulk_plastic_bag_lot_codes'].get(),
+                        'bulk_bag_qty': row['bulk_bag_qty'].get(),
+                        'pallet_num': row['pallet_num'].get(),
+                        'total_kg': row['total_kg'].get(),
+                        'notes': row['notes'].get(),
+                        'initial': row['initial'].get()
+                    }
+                    for row in self.table_data_inline
+                ],
+                'production_notes': self.form_data_inline['production_notes'].get('1.0', tk.END).strip(),
+                'verified_by_qa': self.form_data_inline['verified_by_qa'].get(),
+                'supervisor_signature': self.form_data_inline['supervisor_signature'].get()
+            }
+            
+            self.production_records.append(record)
+            self.save_production_records()
+            messagebox.showinfo("성공", "양식이 저장되었습니다.")
+        
+        def fill_from_label_inline():
+            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력"""
+            label_data = self.get_label_data()
+            total_weight = label_data.get('total_weight', '')
+            
+            if total_weight:
+                # 첫 번째 빈 행에 Total KG 입력
+                for row_data in self.table_data_inline:
+                    if not row_data['total_kg'].get():
+                        row_data['total_kg'].set(total_weight)
+                        break
+        
+        ttk.Button(button_frame, text="라벨 데이터 가져오기", command=fill_from_label_inline).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="저장", command=save_inline_form).pack(side=tk.LEFT, padx=5)
+        
+        # 스크롤 가능한 프레임
+        canvas = tk.Canvas(parent, highlightthickness=0)
+        scrollbar = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        # canvas window ID 저장
+        self.canvas_window_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        def update_scroll_region(event):
+            """scrollable_frame 크기 변경 시 스크롤 영역 업데이트"""
+            canvas.configure(scrollregion=canvas.bbox("all"))
+        
+        def update_canvas_width(event):
+            """canvas 너비 변경 시 scrollable_frame 너비 조정"""
+            canvas_width = event.width
+            canvas.itemconfig(self.canvas_window_id, width=canvas_width)
+        
+        scrollable_frame.bind("<Configure>", update_scroll_region)
+        canvas.bind('<Configure>', update_canvas_width)
+        
+        # 양식 입력 필드들
+        self.form_data_inline = {}
+        
+        # 제목
+        title_label = ttk.Label(scrollable_frame, text="Daily Bulk Production Sheet", 
+                               font=("Arial", 14, "bold"))
+        title_label.grid(row=0, column=0, columnspan=2, pady=5)
+        
+        # DATE
+        ttk.Label(scrollable_frame, text="DATE:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        date_var = tk.StringVar(value=datetime.now().strftime('%Y-%m-%d'))
+        date_entry = ttk.Entry(scrollable_frame, textvariable=date_var, width=20)
+        date_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['date'] = date_var
+        
+        # SHIFT
+        ttk.Label(scrollable_frame, text="SHIFT:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        shift_var = tk.StringVar(value="AM")
+        shift_frame = ttk.Frame(scrollable_frame)
+        shift_frame.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(shift_frame, text="AM", variable=shift_var, value="AM").pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(shift_frame, text="PM", variable=shift_var, value="PM").pack(side=tk.LEFT, padx=2)
+        ttk.Radiobutton(shift_frame, text="Graveyard", variable=shift_var, value="Graveyard").pack(side=tk.LEFT, padx=2)
+        self.form_data_inline['shift'] = shift_var
+        
+        # Supervisor Name
+        ttk.Label(scrollable_frame, text="Supervisor Name:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
+        supervisor_var = tk.StringVar()
+        supervisor_entry = ttk.Entry(scrollable_frame, textvariable=supervisor_var, width=20)
+        supervisor_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['supervisor_name'] = supervisor_var
+        
+        # Employee Name
+        ttk.Label(scrollable_frame, text="Employee Name:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
+        employee_var = tk.StringVar()
+        employee_entry = ttk.Entry(scrollable_frame, textvariable=employee_var, width=20)
+        employee_entry.grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['employee_name'] = employee_var
+        
+        # Product Name
+        ttk.Label(scrollable_frame, text="Product Name:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=2)
+        product_var = tk.StringVar()
+        product_entry = ttk.Entry(scrollable_frame, textvariable=product_var, width=20)
+        product_entry.grid(row=5, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['product_name'] = product_var
+        
+        # Bulk Lot Code
+        ttk.Label(scrollable_frame, text="Bulk Lot Code:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=2)
+        bulk_lot_var = tk.StringVar()
+        bulk_lot_entry = ttk.Entry(scrollable_frame, textvariable=bulk_lot_var, width=20)
+        bulk_lot_entry.grid(row=6, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['bulk_lot_code'] = bulk_lot_var
+        
+        # Parchment Paper
+        ttk.Label(scrollable_frame, text="Parchment Paper:").grid(row=7, column=0, sticky=tk.W, padx=5, pady=2)
+        parchment_frame = ttk.Frame(scrollable_frame)
+        parchment_frame.grid(row=7, column=1, sticky=tk.W, padx=5, pady=2)
+        parchment_reuse_var = tk.BooleanVar()
+        ttk.Checkbutton(parchment_frame, text="Reuse", variable=parchment_reuse_var).pack(side=tk.LEFT, padx=2)
+        ttk.Label(parchment_frame, text="or Lot:").pack(side=tk.LEFT, padx=2)
+        parchment_lot_var = tk.StringVar()
+        parchment_lot_entry = ttk.Entry(parchment_frame, textvariable=parchment_lot_var, width=12)
+        parchment_lot_entry.pack(side=tk.LEFT, padx=2)
+        self.form_data_inline['parchment_reuse'] = parchment_reuse_var
+        self.form_data_inline['parchment_lot_code'] = parchment_lot_var
+        
+        # Quantity
+        ttk.Label(scrollable_frame, text="Quantity:").grid(row=8, column=0, sticky=tk.W, padx=5, pady=2)
+        quantity_var = tk.StringVar()
+        quantity_entry = ttk.Entry(scrollable_frame, textvariable=quantity_var, width=20)
+        quantity_entry.grid(row=8, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['quantity'] = quantity_var
+        
+        # Quality Checked
+        ttk.Label(scrollable_frame, text="Quality Checked (Initial):").grid(row=9, column=0, sticky=tk.W, padx=5, pady=2)
+        quality_var = tk.StringVar()
+        quality_entry = ttk.Entry(scrollable_frame, textvariable=quality_var, width=20)
+        quality_entry.grid(row=9, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['quality_checked'] = quality_var
+        
+        # Production Data Table
+        table_label = ttk.Label(scrollable_frame, text="Production Data Table", font=("Arial", 11, "bold"))
+        table_label.grid(row=10, column=0, columnspan=2, pady=(10, 5))
+        
+        # 테이블 헤더 (간소화)
+        headers = ["Lot Codes", "Bag QTY", "Pallet", "Total KG", "Notes", "Init"]
+        for col, header in enumerate(headers):
+            ttk.Label(scrollable_frame, text=header, font=("Arial", 8, "bold"), 
+                     borderwidth=1, relief=tk.SOLID, padding=2).grid(
+                row=11, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+        
+        # 테이블 행 (10개 행)
+        self.table_data_inline = []
+        header_keys = ['bulk_plastic_bag_lot_codes', 'bulk_bag_qty', 'pallet_num', 'total_kg', 'notes', 'initial']
+        for row in range(10):
+            row_data = {}
+            for col, key in enumerate(header_keys):
+                var = tk.StringVar()
+                entry = ttk.Entry(scrollable_frame, textvariable=var, width=10)
+                entry.grid(row=12+row, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+                row_data[key] = var
+                
+                # 첫 번째 행의 Lot code와 Bag QTY 변경 시 다음 행들에 복사 (비어있을 때만)
+                if row == 0 and (key == 'bulk_plastic_bag_lot_codes' or key == 'bulk_bag_qty'):
+                    var.trace_add('write', lambda name, index, mode, var=var, key=key, row_idx=row: self.copy_to_next_rows(key, var, row_idx))
+                
+                # Total KG 입력 시 Pallet 번호 자동 증가
+                if key == 'total_kg':
+                    var.trace_add('write', lambda name, index, mode, var=var, row_idx=row: self.auto_increment_pallet(row_idx))
+            
+            self.table_data_inline.append(row_data)
+        self.form_data_inline['production_table'] = self.table_data_inline
+        
+        # Production Notes
+        ttk.Label(scrollable_frame, text="Production Notes:").grid(row=22, column=0, sticky=(tk.W, tk.N), padx=5, pady=2)
+        notes_text = tk.Text(scrollable_frame, height=4, width=30)
+        notes_text.grid(row=22, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['production_notes'] = notes_text
+        
+        # Verified by QA
+        ttk.Label(scrollable_frame, text="Verified by QA:").grid(row=23, column=0, sticky=tk.W, padx=5, pady=2)
+        qa_var = tk.StringVar()
+        qa_entry = ttk.Entry(scrollable_frame, textvariable=qa_var, width=20)
+        qa_entry.grid(row=23, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['verified_by_qa'] = qa_var
+        
+        # Supervisor Name & Signature
+        ttk.Label(scrollable_frame, text="Supervisor Signature:").grid(row=24, column=0, sticky=tk.W, padx=5, pady=2)
+        supervisor_sig_var = tk.StringVar()
+        supervisor_sig_entry = ttk.Entry(scrollable_frame, textvariable=supervisor_sig_var, width=20)
+        supervisor_sig_entry.grid(row=24, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        self.form_data_inline['supervisor_signature'] = supervisor_sig_var
+        
+        # 그리드 가중치 설정
+        scrollable_frame.columnconfigure(1, weight=1)
+        for col in range(6):
+            scrollable_frame.columnconfigure(col, weight=1)
+        
+        # 스크롤바와 캔버스 배치
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+    
+    def copy_to_next_rows(self, key, first_row_var, first_row_idx):
+        """첫 번째 행의 Lot code나 Bag QTY를 다음 행들에 복사 (Total KG이 입력된 행에만)"""
+        if not hasattr(self, 'table_data_inline'):
+            return
+        
+        value = first_row_var.get()
+        if not value:
+            return
+        
+        # 첫 번째 행을 제외한 나머지 행에 복사
+        # 단, Total KG이 입력된 행에만 복사
+        for i in range(1, len(self.table_data_inline)):
+            if key in self.table_data_inline[i]:
+                # Total KG이 입력된 행에만 복사
+                total_kg_value = self.table_data_inline[i]['total_kg'].get()
+                if total_kg_value:  # Total KG이 있으면
+                    # 현재 값이 비어있을 때만 복사
+                    current_value = self.table_data_inline[i][key].get()
+                    if not current_value:
+                        self.table_data_inline[i][key].set(value)
+    
+    def auto_increment_pallet(self, row_idx):
+        """Total KG 입력 시 Pallet 번호 자동 증가"""
+        if not hasattr(self, 'table_data_inline'):
+            return
+        
+        total_kg_value = self.table_data_inline[row_idx]['total_kg'].get()
+        
+        # Total KG이 입력되고 Pallet 번호가 비어있을 때만 자동 증가
+        if total_kg_value and not self.table_data_inline[row_idx]['pallet_num'].get():
+            # 이전 행들의 Pallet 번호를 확인하여 다음 번호 결정
+            max_pallet = 0
+            for i in range(row_idx):
+                pallet_str = self.table_data_inline[i]['pallet_num'].get()
+                if pallet_str:
+                    try:
+                        pallet_num = int(pallet_str)
+                        if pallet_num > max_pallet:
+                            max_pallet = pallet_num
+                    except ValueError:
+                        pass
+            
+            # 다음 Pallet 번호 설정
+            next_pallet = max_pallet + 1
+            self.table_data_inline[row_idx]['pallet_num'].set(f"{next_pallet:03d}")
+            
+            # Lot code와 Bag QTY가 비어있으면 첫 번째 행의 값 복사
+            lot_code = self.table_data_inline[row_idx]['bulk_plastic_bag_lot_codes'].get()
+            bag_qty = self.table_data_inline[row_idx]['bulk_bag_qty'].get()
+            
+            if not lot_code and len(self.table_data_inline) > 0:
+                first_lot = self.table_data_inline[0]['bulk_plastic_bag_lot_codes'].get()
+                if first_lot:
+                    self.table_data_inline[row_idx]['bulk_plastic_bag_lot_codes'].set(first_lot)
+            
+            if not bag_qty and len(self.table_data_inline) > 0:
+                first_bag_qty = self.table_data_inline[0]['bulk_bag_qty'].get()
+                if first_bag_qty:
+                    self.table_data_inline[row_idx]['bulk_bag_qty'].set(first_bag_qty)
+    
+    def add_to_production_form(self, label_data):
+        """모바일 API로 인쇄 시 양식 테이블에 Total KG 자동 추가"""
+        if not hasattr(self, 'table_data_inline'):
+            return
+        
+        total_weight = label_data.get('total_weight', '')
+        if not total_weight:
+            return
+        
+        # 첫 번째 빈 행에 Total KG 입력
+        for i, row_data in enumerate(self.table_data_inline):
+            current_total_kg = row_data['total_kg'].get()
+            if not current_total_kg:
+                # Total KG 입력
+                row_data['total_kg'].set(total_weight)
+                
+                # Pallet 번호 자동 증가
+                if not row_data['pallet_num'].get():
+                    max_pallet = 0
+                    for j in range(i):
+                        pallet_str = self.table_data_inline[j]['pallet_num'].get()
+                        if pallet_str:
+                            try:
+                                pallet_num = int(pallet_str)
+                                if pallet_num > max_pallet:
+                                    max_pallet = pallet_num
+                            except ValueError:
+                                pass
+                    
+                    next_pallet = max_pallet + 1
+                    row_data['pallet_num'].set(f"{next_pallet:03d}")
+                
+                # Lot code와 Bag QTY가 비어있으면 첫 번째 행의 값 복사
+                if not row_data['bulk_plastic_bag_lot_codes'].get() and len(self.table_data_inline) > 0:
+                    first_lot = self.table_data_inline[0]['bulk_plastic_bag_lot_codes'].get()
+                    if first_lot:
+                        row_data['bulk_plastic_bag_lot_codes'].set(first_lot)
+                
+                if not row_data['bulk_bag_qty'].get() and len(self.table_data_inline) > 0:
+                    first_bag_qty = self.table_data_inline[0]['bulk_bag_qty'].get()
+                    if first_bag_qty:
+                        row_data['bulk_bag_qty'].set(first_bag_qty)
+                
+                break  # 첫 번째 빈 행에만 입력
+    
     def calculate_net_weight(self, *args):
         """순수무게 자동 계산"""
         try:
@@ -1207,6 +1566,17 @@ class LabelPrinterGUI:
                 # 인쇄 기록 저장
                 self.save_print_record(data)
                 messagebox.showinfo("성공", f"프린터 '{actual_printer_name}'로 라벨이 성공적으로 인쇄되었습니다.")
+                
+                # 양식 기록 옵션 제공 - 인라인 양식에 자동 입력
+                response = messagebox.askyesno("양식 기록", "Daily Bulk Production Sheet 양식의 Total KG에 자동 입력하시겠습니까?")
+                if response:
+                    total_weight = data.get('total_weight', '')
+                    if total_weight and hasattr(self, 'table_data_inline'):
+                        # 첫 번째 빈 행에 Total KG 입력
+                        for row_data in self.table_data_inline:
+                            if not row_data['total_kg'].get():
+                                row_data['total_kg'].set(total_weight)
+                                break
             else:
                 messagebox.showerror("오류", "인쇄에 실패했습니다. 프린터 설정을 확인해주세요.")
                 
@@ -1627,6 +1997,14 @@ class LabelPrinterGUI:
                     # 인쇄 기록 저장
                     self.save_print_record(data)
                     
+                    # 양식 테이블에 Total KG 자동 입력 (모바일 전송)
+                    # GUI 스레드에서 실행되도록 root.after 사용
+                    try:
+                        self.root.after(0, lambda: self.add_to_production_form(data))
+                    except:
+                        # root가 없을 경우 직접 호출
+                        self.add_to_production_form(data)
+                    
                     return jsonify({
                         'success': True,
                         'message': '라벨이 성공적으로 인쇄되었습니다.',
@@ -1779,6 +2157,448 @@ class LabelPrinterGUI:
         # 5초마다 상태 업데이트
         self.root.after(5000, self.update_server_status)
         
+    def open_production_form(self):
+        """Daily Bulk Production Sheet 양식 창 열기"""
+        form_window = tk.Toplevel(self.root)
+        form_window.title("Daily Bulk Production Sheet")
+        form_window.geometry("800x900")
+        form_window.resizable(True, True)
+        
+        # 스크롤 가능한 프레임
+        canvas = tk.Canvas(form_window)
+        scrollbar = ttk.Scrollbar(form_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 양식 입력 필드들
+        form_data = {}
+        
+        # 제목
+        title_label = ttk.Label(scrollable_frame, text="Daily Bulk Production Sheet", 
+                               font=("Arial", 16, "bold"))
+        title_label.grid(row=0, column=0, columnspan=2, pady=10)
+        
+        # DATE
+        ttk.Label(scrollable_frame, text="DATE:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        date_var = tk.StringVar(value=datetime.now().strftime('%Y-%m-%d'))
+        date_entry = ttk.Entry(scrollable_frame, textvariable=date_var, width=30)
+        date_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['date'] = date_var
+        
+        # SHIFT
+        ttk.Label(scrollable_frame, text="SHIFT:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        shift_var = tk.StringVar(value="AM")
+        shift_frame = ttk.Frame(scrollable_frame)
+        shift_frame.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(shift_frame, text="AM", variable=shift_var, value="AM").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(shift_frame, text="PM", variable=shift_var, value="PM").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(shift_frame, text="Graveyard", variable=shift_var, value="Graveyard").pack(side=tk.LEFT, padx=5)
+        form_data['shift'] = shift_var
+        
+        # Supervisor Name
+        ttk.Label(scrollable_frame, text="Supervisor Name:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
+        supervisor_var = tk.StringVar()
+        supervisor_entry = ttk.Entry(scrollable_frame, textvariable=supervisor_var, width=30)
+        supervisor_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['supervisor_name'] = supervisor_var
+        
+        # Employee Name
+        ttk.Label(scrollable_frame, text="Employee Name:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
+        employee_var = tk.StringVar()
+        employee_entry = ttk.Entry(scrollable_frame, textvariable=employee_var, width=30)
+        employee_entry.grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['employee_name'] = employee_var
+        
+        # Product Name
+        ttk.Label(scrollable_frame, text="Product Name:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=2)
+        product_var = tk.StringVar()
+        product_entry = ttk.Entry(scrollable_frame, textvariable=product_var, width=30)
+        product_entry.grid(row=5, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['product_name'] = product_var
+        
+        # Bulk Lot Code
+        ttk.Label(scrollable_frame, text="Bulk Lot Code:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=2)
+        bulk_lot_var = tk.StringVar()
+        bulk_lot_entry = ttk.Entry(scrollable_frame, textvariable=bulk_lot_var, width=30)
+        bulk_lot_entry.grid(row=6, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['bulk_lot_code'] = bulk_lot_var
+        
+        # Parchment Paper
+        ttk.Label(scrollable_frame, text="Parchment Paper:").grid(row=7, column=0, sticky=tk.W, padx=5, pady=2)
+        parchment_frame = ttk.Frame(scrollable_frame)
+        parchment_frame.grid(row=7, column=1, sticky=tk.W, padx=5, pady=2)
+        parchment_reuse_var = tk.BooleanVar()
+        ttk.Checkbutton(parchment_frame, text="Reuse", variable=parchment_reuse_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(parchment_frame, text="or Lot code:").pack(side=tk.LEFT, padx=5)
+        parchment_lot_var = tk.StringVar()
+        parchment_lot_entry = ttk.Entry(parchment_frame, textvariable=parchment_lot_var, width=20)
+        parchment_lot_entry.pack(side=tk.LEFT, padx=5)
+        form_data['parchment_reuse'] = parchment_reuse_var
+        form_data['parchment_lot_code'] = parchment_lot_var
+        
+        # Quantity
+        ttk.Label(scrollable_frame, text="Quantity:").grid(row=8, column=0, sticky=tk.W, padx=5, pady=2)
+        quantity_var = tk.StringVar()
+        quantity_entry = ttk.Entry(scrollable_frame, textvariable=quantity_var, width=30)
+        quantity_entry.grid(row=8, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['quantity'] = quantity_var
+        
+        # Quality Checked
+        ttk.Label(scrollable_frame, text="Quality Checked (Supervisor Initial):").grid(row=9, column=0, sticky=tk.W, padx=5, pady=2)
+        quality_var = tk.StringVar()
+        quality_entry = ttk.Entry(scrollable_frame, textvariable=quality_var, width=30)
+        quality_entry.grid(row=9, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['quality_checked'] = quality_var
+        
+        # Production Data Table
+        table_label = ttk.Label(scrollable_frame, text="Production Data Table", font=("Arial", 12, "bold"))
+        table_label.grid(row=10, column=0, columnspan=2, pady=(10, 5))
+        
+        # 테이블 헤더
+        headers = ["Bulk Plastic Bag\nLot Codes", "Bulk Bag\nQTY", "Pallet #", "Total KG", "Notes", "Initial"]
+        for col, header in enumerate(headers):
+            ttk.Label(scrollable_frame, text=header, font=("Arial", 9, "bold"), borderwidth=1, relief=tk.SOLID).grid(
+                row=11, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+        
+        # 테이블 행 (10개 행)
+        table_data = []
+        header_keys = ['bulk_plastic_bag_lot_codes', 'bulk_bag_qty', 'pallet_num', 'total_kg', 'notes', 'initial']
+        for row in range(10):
+            row_data = {}
+            for col, key in enumerate(header_keys):
+                var = tk.StringVar()
+                entry = ttk.Entry(scrollable_frame, textvariable=var, width=15)
+                entry.grid(row=12+row, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+                row_data[key] = var
+            table_data.append(row_data)
+        form_data['production_table'] = table_data
+        
+        # Production Notes
+        ttk.Label(scrollable_frame, text="Production Notes:").grid(row=22, column=0, sticky=(tk.W, tk.N), padx=5, pady=2)
+        notes_text = tk.Text(scrollable_frame, height=5, width=50)
+        notes_text.grid(row=22, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['production_notes'] = notes_text
+        
+        # Verified by QA
+        ttk.Label(scrollable_frame, text="Verified by QA:").grid(row=23, column=0, sticky=tk.W, padx=5, pady=2)
+        qa_var = tk.StringVar()
+        qa_entry = ttk.Entry(scrollable_frame, textvariable=qa_var, width=30)
+        qa_entry.grid(row=23, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['verified_by_qa'] = qa_var
+        
+        # Supervisor Name & Signature
+        ttk.Label(scrollable_frame, text="Supervisor Name & Signature:").grid(row=24, column=0, sticky=tk.W, padx=5, pady=2)
+        supervisor_sig_var = tk.StringVar()
+        supervisor_sig_entry = ttk.Entry(scrollable_frame, textvariable=supervisor_sig_var, width=30)
+        supervisor_sig_entry.grid(row=24, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['supervisor_signature'] = supervisor_sig_var
+        
+        # 그리드 가중치 설정
+        scrollable_frame.columnconfigure(1, weight=1)
+        for col in range(6):
+            scrollable_frame.columnconfigure(col, weight=1)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 버튼 프레임
+        button_frame = ttk.Frame(form_window)
+        button_frame.pack(pady=10)
+        
+        def save_form():
+            """양식 데이터 저장"""
+            record = {
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'date': form_data['date'].get(),
+                'shift': form_data['shift'].get(),
+                'supervisor_name': form_data['supervisor_name'].get(),
+                'employee_name': form_data['employee_name'].get(),
+                'product_name': form_data['product_name'].get(),
+                'bulk_lot_code': form_data['bulk_lot_code'].get(),
+                'parchment_reuse': form_data['parchment_reuse'].get(),
+                'parchment_lot_code': form_data['parchment_lot_code'].get(),
+                'quantity': form_data['quantity'].get(),
+                'quality_checked': form_data['quality_checked'].get(),
+                'production_table': [
+                    {
+                        'bulk_plastic_bag_lot_codes': row['bulk_plastic_bag_lot_codes'].get(),
+                        'bulk_bag_qty': row['bulk_bag_qty'].get(),
+                        'pallet_num': row['pallet_num'].get(),
+                        'total_kg': row['total_kg'].get(),
+                        'notes': row['notes'].get(),
+                        'initial': row['initial'].get()
+                    }
+                    for row in table_data
+                ],
+                'production_notes': form_data['production_notes'].get('1.0', tk.END).strip(),
+                'verified_by_qa': form_data['verified_by_qa'].get(),
+                'supervisor_signature': form_data['supervisor_signature'].get()
+            }
+            
+            self.production_records.append(record)
+            self.save_production_records()
+            messagebox.showinfo("성공", "양식이 저장되었습니다.")
+            form_window.destroy()
+        
+        # 라벨 인쇄 시 자동으로 TOTAL KG에 입력하기 위한 함수
+        def fill_from_label():
+            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력"""
+            label_data = self.get_label_data()
+            total_weight = label_data.get('total_weight', '')
+            
+            if total_weight:
+                # 첫 번째 빈 행에 Total KG 입력
+                for row_data in table_data:
+                    if not row_data['total_kg'].get():
+                        row_data['total_kg'].set(total_weight)
+                        break
+        
+        ttk.Button(button_frame, text="라벨 데이터 가져오기", command=fill_from_label).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="저장", command=save_form).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="취소", command=form_window.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def open_production_form_with_data(self, label_data):
+        """라벨 데이터를 포함하여 Daily Bulk Production Sheet 양식 창 열기"""
+        form_window = tk.Toplevel(self.root)
+        form_window.title("Daily Bulk Production Sheet")
+        form_window.geometry("800x900")
+        form_window.resizable(True, True)
+        
+        # 스크롤 가능한 프레임
+        canvas = tk.Canvas(form_window)
+        scrollbar = ttk.Scrollbar(form_window, orient="vertical", command=canvas.yview)
+        scrollable_frame = ttk.Frame(canvas)
+        
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+        
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        
+        # 양식 입력 필드들
+        form_data = {}
+        
+        # 제목
+        title_label = ttk.Label(scrollable_frame, text="Daily Bulk Production Sheet", 
+                               font=("Arial", 16, "bold"))
+        title_label.grid(row=0, column=0, columnspan=2, pady=10)
+        
+        # DATE
+        ttk.Label(scrollable_frame, text="DATE:").grid(row=1, column=0, sticky=tk.W, padx=5, pady=2)
+        date_var = tk.StringVar(value=label_data.get('date', datetime.now().strftime('%Y-%m-%d')))
+        date_entry = ttk.Entry(scrollable_frame, textvariable=date_var, width=30)
+        date_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['date'] = date_var
+        
+        # SHIFT
+        ttk.Label(scrollable_frame, text="SHIFT:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
+        shift_var = tk.StringVar(value="AM")
+        shift_frame = ttk.Frame(scrollable_frame)
+        shift_frame.grid(row=2, column=1, sticky=tk.W, padx=5, pady=2)
+        ttk.Radiobutton(shift_frame, text="AM", variable=shift_var, value="AM").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(shift_frame, text="PM", variable=shift_var, value="PM").pack(side=tk.LEFT, padx=5)
+        ttk.Radiobutton(shift_frame, text="Graveyard", variable=shift_var, value="Graveyard").pack(side=tk.LEFT, padx=5)
+        form_data['shift'] = shift_var
+        
+        # Supervisor Name
+        ttk.Label(scrollable_frame, text="Supervisor Name:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
+        supervisor_var = tk.StringVar()
+        supervisor_entry = ttk.Entry(scrollable_frame, textvariable=supervisor_var, width=30)
+        supervisor_entry.grid(row=3, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['supervisor_name'] = supervisor_var
+        
+        # Employee Name
+        ttk.Label(scrollable_frame, text="Employee Name:").grid(row=4, column=0, sticky=tk.W, padx=5, pady=2)
+        employee_var = tk.StringVar()
+        employee_entry = ttk.Entry(scrollable_frame, textvariable=employee_var, width=30)
+        employee_entry.grid(row=4, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['employee_name'] = employee_var
+        
+        # Product Name
+        ttk.Label(scrollable_frame, text="Product Name:").grid(row=5, column=0, sticky=tk.W, padx=5, pady=2)
+        product_var = tk.StringVar()
+        product_entry = ttk.Entry(scrollable_frame, textvariable=product_var, width=30)
+        product_entry.grid(row=5, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['product_name'] = product_var
+        
+        # Bulk Lot Code
+        ttk.Label(scrollable_frame, text="Bulk Lot Code:").grid(row=6, column=0, sticky=tk.W, padx=5, pady=2)
+        bulk_lot_var = tk.StringVar()
+        bulk_lot_entry = ttk.Entry(scrollable_frame, textvariable=bulk_lot_var, width=30)
+        bulk_lot_entry.grid(row=6, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['bulk_lot_code'] = bulk_lot_var
+        
+        # Parchment Paper
+        ttk.Label(scrollable_frame, text="Parchment Paper:").grid(row=7, column=0, sticky=tk.W, padx=5, pady=2)
+        parchment_frame = ttk.Frame(scrollable_frame)
+        parchment_frame.grid(row=7, column=1, sticky=tk.W, padx=5, pady=2)
+        parchment_reuse_var = tk.BooleanVar()
+        ttk.Checkbutton(parchment_frame, text="Reuse", variable=parchment_reuse_var).pack(side=tk.LEFT, padx=5)
+        ttk.Label(parchment_frame, text="or Lot code:").pack(side=tk.LEFT, padx=5)
+        parchment_lot_var = tk.StringVar()
+        parchment_lot_entry = ttk.Entry(parchment_frame, textvariable=parchment_lot_var, width=20)
+        parchment_lot_entry.pack(side=tk.LEFT, padx=5)
+        form_data['parchment_reuse'] = parchment_reuse_var
+        form_data['parchment_lot_code'] = parchment_lot_var
+        
+        # Quantity
+        ttk.Label(scrollable_frame, text="Quantity:").grid(row=8, column=0, sticky=tk.W, padx=5, pady=2)
+        quantity_var = tk.StringVar()
+        quantity_entry = ttk.Entry(scrollable_frame, textvariable=quantity_var, width=30)
+        quantity_entry.grid(row=8, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['quantity'] = quantity_var
+        
+        # Quality Checked
+        ttk.Label(scrollable_frame, text="Quality Checked (Supervisor Initial):").grid(row=9, column=0, sticky=tk.W, padx=5, pady=2)
+        quality_var = tk.StringVar()
+        quality_entry = ttk.Entry(scrollable_frame, textvariable=quality_var, width=30)
+        quality_entry.grid(row=9, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['quality_checked'] = quality_var
+        
+        # Production Data Table
+        table_label = ttk.Label(scrollable_frame, text="Production Data Table", font=("Arial", 12, "bold"))
+        table_label.grid(row=10, column=0, columnspan=2, pady=(10, 5))
+        
+        # 테이블 헤더
+        headers = ["Bulk Plastic Bag\nLot Codes", "Bulk Bag\nQTY", "Pallet #", "Total KG", "Notes", "Initial"]
+        for col, header in enumerate(headers):
+            ttk.Label(scrollable_frame, text=header, font=("Arial", 9, "bold"), borderwidth=1, relief=tk.SOLID).grid(
+                row=11, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+        
+        # 테이블 행 (10개 행)
+        table_data = []
+        header_keys = ['bulk_plastic_bag_lot_codes', 'bulk_bag_qty', 'pallet_num', 'total_kg', 'notes', 'initial']
+        for row in range(10):
+            row_data = {}
+            for col, key in enumerate(header_keys):
+                var = tk.StringVar()
+                entry = ttk.Entry(scrollable_frame, textvariable=var, width=15)
+                entry.grid(row=12+row, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+                row_data[key] = var
+            table_data.append(row_data)
+        form_data['production_table'] = table_data
+        
+        # 라벨 데이터에서 TOTAL KG 자동 입력 (첫 번째 빈 행)
+        total_weight = label_data.get('total_weight', '')
+        if total_weight:
+            try:
+                table_data[0]['total_kg'].set(total_weight)
+            except:
+                pass
+        
+        # Production Notes
+        ttk.Label(scrollable_frame, text="Production Notes:").grid(row=22, column=0, sticky=(tk.W, tk.N), padx=5, pady=2)
+        notes_text = tk.Text(scrollable_frame, height=5, width=50)
+        notes_text.grid(row=22, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['production_notes'] = notes_text
+        
+        # Verified by QA
+        ttk.Label(scrollable_frame, text="Verified by QA:").grid(row=23, column=0, sticky=tk.W, padx=5, pady=2)
+        qa_var = tk.StringVar()
+        qa_entry = ttk.Entry(scrollable_frame, textvariable=qa_var, width=30)
+        qa_entry.grid(row=23, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['verified_by_qa'] = qa_var
+        
+        # Supervisor Name & Signature
+        ttk.Label(scrollable_frame, text="Supervisor Name & Signature:").grid(row=24, column=0, sticky=tk.W, padx=5, pady=2)
+        supervisor_sig_var = tk.StringVar()
+        supervisor_sig_entry = ttk.Entry(scrollable_frame, textvariable=supervisor_sig_var, width=30)
+        supervisor_sig_entry.grid(row=24, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        form_data['supervisor_signature'] = supervisor_sig_var
+        
+        # 그리드 가중치 설정
+        scrollable_frame.columnconfigure(1, weight=1)
+        for col in range(6):
+            scrollable_frame.columnconfigure(col, weight=1)
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # 버튼 프레임
+        button_frame = ttk.Frame(form_window)
+        button_frame.pack(pady=10)
+        
+        def save_form():
+            """양식 데이터 저장"""
+            record = {
+                'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'date': form_data['date'].get(),
+                'shift': form_data['shift'].get(),
+                'supervisor_name': form_data['supervisor_name'].get(),
+                'employee_name': form_data['employee_name'].get(),
+                'product_name': form_data['product_name'].get(),
+                'bulk_lot_code': form_data['bulk_lot_code'].get(),
+                'parchment_reuse': form_data['parchment_reuse'].get(),
+                'parchment_lot_code': form_data['parchment_lot_code'].get(),
+                'quantity': form_data['quantity'].get(),
+                'quality_checked': form_data['quality_checked'].get(),
+                'production_table': [
+                    {
+                        'bulk_plastic_bag_lot_codes': row['bulk_plastic_bag_lot_codes'].get(),
+                        'bulk_bag_qty': row['bulk_bag_qty'].get(),
+                        'pallet_num': row['pallet_num'].get(),
+                        'total_kg': row['total_kg'].get(),
+                        'notes': row['notes'].get(),
+                        'initial': row['initial'].get()
+                    }
+                    for row in table_data
+                ],
+                'production_notes': form_data['production_notes'].get('1.0', tk.END).strip(),
+                'verified_by_qa': form_data['verified_by_qa'].get(),
+                'supervisor_signature': form_data['supervisor_signature'].get(),
+                'label_data': label_data  # 라벨 데이터도 함께 저장
+            }
+            
+            self.production_records.append(record)
+            self.save_production_records()
+            messagebox.showinfo("성공", "양식이 저장되었습니다.")
+            form_window.destroy()
+        
+        def fill_from_label():
+            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력"""
+            label_data = self.get_label_data()
+            total_weight = label_data.get('total_weight', '')
+            
+            if total_weight:
+                # 첫 번째 빈 행에 Total KG 입력
+                for row_data in table_data:
+                    if not row_data['total_kg'].get():
+                        row_data['total_kg'].set(total_weight)
+                        break
+        
+        ttk.Button(button_frame, text="라벨 데이터 가져오기", command=fill_from_label).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="저장", command=save_form).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="취소", command=form_window.destroy).pack(side=tk.LEFT, padx=5)
+    
+    def load_production_records(self):
+        """저장된 양식 데이터 로드"""
+        try:
+            records_file = "production_records.json"
+            if os.path.exists(records_file):
+                with open(records_file, 'r', encoding='utf-8') as f:
+                    self.production_records = json.load(f)
+        except Exception as e:
+            print(f"양식 데이터 로드 실패: {e}")
+            self.production_records = []
+    
+    def save_production_records(self):
+        """양식 데이터를 JSON 파일로 저장"""
+        try:
+            records_file = "production_records.json"
+            with open(records_file, 'w', encoding='utf-8') as f:
+                json.dump(self.production_records, f, ensure_ascii=False, indent=2)
+            print(f"양식 데이터 저장 완료: {len(self.production_records)}개 기록")
+        except Exception as e:
+            print(f"양식 데이터 저장 실패: {e}")
+            messagebox.showerror("오류", f"양식 데이터 저장 실패: {e}")
+
     def on_closing(self):
         """프로그램 종료 시"""
         self.server_running = False
