@@ -472,14 +472,23 @@ class LabelPrinter:
             print(f"❌ 이미지 인쇄 실패: {e}")
             return False
     
-    def print_label(self, pdf_path, printer_name=None, label_data=None):
+    def print_label(self, pdf_path, printer_name=None, label_data=None, copies=1):
         """라벨 인쇄"""
         try:
+            try:
+                copies = int(copies)
+            except (ValueError, TypeError):
+                copies = 1
+            if copies < 1:
+                copies = 1
+            
             # CUPS를 통한 인쇄 (Linux/macOS)
             if os.name == 'posix':
                 cmd = ['lp']
                 if printer_name:
                     cmd.extend(['-d', printer_name])
+                if copies > 1:
+                    cmd.extend(['-n', str(copies)])
                 cmd.append(pdf_path)
                 result = subprocess.run(cmd, capture_output=True, text=True)
                 if result.returncode == 0:
@@ -492,17 +501,23 @@ class LabelPrinter:
                 # Windows의 경우 - PDF로 인쇄
                 if printer_name:
                     print(f"Windows 인쇄 시도 - 프린터: {printer_name}")
-                    return self.print_simple_pdf(pdf_path, printer_name)
+                    success = True
+                    for i in range(copies):
+                        if not self.print_simple_pdf(pdf_path, printer_name):
+                            success = False
+                            break
+                    return success
                 else:
                     # 기본 프린터로 인쇄
-                    os.startfile(pdf_path, "print")
-                    logger.info(f"라벨이 기본 프린터로 인쇄되었습니다: {pdf_path}")
+                    for i in range(copies):
+                        os.startfile(pdf_path, "print")
+                    logger.info(f"라벨이 기본 프린터로 인쇄되었습니다: {pdf_path} (copies={copies})")
                     return True
         except Exception as e:
             logger.error(f"인쇄 중 오류 발생: {str(e)}")
             return False
     
-    def print_simple_pdf(self, pdf_path, printer_name):
+    def print_simple_pdf(self, pdf_path, printer_name, copies=1):
         """선택된 프린터로 PDF 인쇄"""
         try:
             import win32print
@@ -533,7 +548,9 @@ class LabelPrinter:
                     print(f"프린터를 '{printer_name}'로 변경하여 시도합니다.")
                 else:
                     print("기본 프린터로 인쇄합니다.")
-                    os.startfile(pdf_path, 'print')
+                    for i in range(copies):
+                        for copy_idx in range(max(1, copies)):
+                            os.startfile(pdf_path, 'print')
                     return True
             
             # PDF를 특정 프린터로 직접 인쇄 (PowerShell 사용)
@@ -575,19 +592,27 @@ if (Test-Path $acrord64Path) {{
 }}
 '''
                 
-                result = subprocess.run([
-                    'powershell', '-Command', ps_script
-                ], capture_output=True, text=True, timeout=10)
+                success = True
+                for copy_idx in range(max(1, copies)):
+                    result = subprocess.run([
+                        'powershell', '-Command', ps_script
+                    ], capture_output=True, text=True, timeout=10)
+                    
+                    if result.returncode == 0:
+                        print(f"✅ Adobe Reader를 통해 프린터 '{printer_name}'로 PDF 인쇄 성공 (copy {copy_idx + 1}/{copies})")
+                        logger.info(f"프린터 '{printer_name}'로 PDF 인쇄 성공 (copy {copy_idx + 1}/{copies})")
+                        if copies > 1 and copy_idx < copies - 1:
+                            import time  # pylint: disable=import-outside-toplevel
+                            time.sleep(1)
+                    else:
+                        print(f"⚠️ Adobe Reader 방법 실패: {result.stderr}")
+                        print("대체 방법: 기본 프린터 임시 변경 후 인쇄...")
+                        success = False
+                        break
                 
-                if result.returncode == 0:
-                    print(f"✅ Adobe Reader를 통해 프린터 '{printer_name}'로 PDF 인쇄 성공")
-                    logger.info(f"프린터 '{printer_name}'로 PDF 인쇄 성공")
-                    # Adobe Reader는 프린터를 직접 지정하므로 기본 프린터 복원 불필요
+                if success:
                     return True
-                else:
-                    print(f"⚠️ Adobe Reader 방법 실패: {result.stderr}")
-                    print("대체 방법: 기본 프린터 임시 변경 후 인쇄...")
-                    raise Exception("Adobe Reader 방법 실패")
+                raise Exception("Adobe Reader 방법 실패")
                     
             except Exception as e:
                 print(f"⚠️ Adobe Reader 방법 실패: {e}")
@@ -614,11 +639,10 @@ if (Test-Path $acrord64Path) {{
                     
                     if current_printer == printer_name:
                         print(f"✅ 확인: 기본 프린터가 '{printer_name}'로 정확히 설정되어 있습니다.")
-                        os.startfile(pdf_path, 'print')
-                        print(f"✅ PDF가 프린터로 전송되었습니다: {current_printer}")
-                        
-                        # 인쇄 완료 대기
-                        time.sleep(5)
+                        for copy_idx in range(max(1, copies)):
+                            os.startfile(pdf_path, 'print')
+                            print(f"✅ PDF가 프린터로 전송되었습니다: {current_printer} (copy {copy_idx + 1}/{copies})")
+                            time.sleep(5)
                         
                         # 원래 기본 프린터로 복원
                         try:
@@ -631,19 +655,22 @@ if (Test-Path $acrord64Path) {{
                         return True
                     else:
                         print(f"❌ 기본 프린터 변경 실패. 현재 프린터: {current_printer}")
-                        os.startfile(pdf_path, 'print')
+                        for copy_idx in range(max(1, copies)):
+                            os.startfile(pdf_path, 'print')
                         return True
                         
                 except Exception as e2:
                     print(f"❌ 기본 프린터 변경 방법도 실패: {e2}")
                     print("기본 프린터로 인쇄합니다.")
-                    os.startfile(pdf_path, 'print')
+                    for copy_idx in range(max(1, copies)):
+                        os.startfile(pdf_path, 'print')
                     return True
             
         except ImportError:
             print("❌ win32print 모듈이 없습니다. pip install pywin32로 설치해주세요.")
             # win32print가 없으면 기본 방법으로 인쇄
-            os.startfile(pdf_path, "print")
+            for copy_idx in range(max(1, copies)):
+                os.startfile(pdf_path, "print")
             logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
             return True
             
@@ -654,7 +681,8 @@ if (Test-Path $acrord64Path) {{
             # 오류 발생 시 기본 방법으로 인쇄
             try:
                 print("기본 방법으로 인쇄 시도...")
-                os.startfile(pdf_path, "print")
+                for copy_idx in range(max(1, copies)):
+                    os.startfile(pdf_path, "print")
                 logger.info(f"PDF가 기본 프린터로 인쇄됨: {pdf_path}")
                 return True
             except Exception as e2:
@@ -689,11 +717,16 @@ class LabelPrinterGUI:
         # 라벨 크기 설정 (TXT 파일에서 읽기)
         self.label_width_cm = 10.0  # 기본값
         self.label_height_cm = 5.0  # 기본값
+        self.font_name = "Arial"  # 기본값
+        self.font_size = 48  # 기본값
+        self.extra_weight = 3.0  # 기본 기타 무게
+        self.default_printer_name = None
+        self.default_label_copies = 2
+        self.default_bulk_copies = 2
+        self._font_loaded_from_settings = False
         self.load_label_size_from_txt()
         
         # 폰트 설정 (TXT 파일에서 읽기)
-        self.font_name = "Arial"  # 기본값
-        self.font_size = 48  # 기본값
         self.load_font_from_txt()
         
         # 서버 IP 자동 감지
@@ -712,38 +745,73 @@ class LabelPrinterGUI:
             config_file = "label_size.txt"
             if os.path.exists(config_file):
                 with open(config_file, 'r', encoding='utf-8') as f:
-                    for line in f:
-                        line = line.strip()
-                        if 'width' in line.lower() or '너비' in line:
-                            try:
-                                # "width: 12" 또는 "너비: 12" 형식 파싱
-                                parts = line.split(':')
-                                if len(parts) == 2:
-                                    self.label_width_cm = float(parts[1].strip())
-                            except:
-                                pass
-                        elif 'height' in line.lower() or '높이' in line:
-                            try:
-                                parts = line.split(':')
-                                if len(parts) == 2:
-                                    self.label_height_cm = float(parts[1].strip())
-                            except:
-                                pass
-                        # 또는 "10,5" 형식으로 읽기
-                        elif ',' in line:
-                            try:
-                                parts = line.split(',')
-                                if len(parts) == 2:
-                                    self.label_width_cm = float(parts[0].strip())
-                                    self.label_height_cm = float(parts[1].strip())
-                            except:
-                                pass
+                    for raw_line in f:
+                        line = raw_line.strip()
+                        if not line or line.startswith('#'):
+                            continue
+                        
+                        key = None
+                        value = None
+                        
+                        if ',' in line:
+                            parts = [p.strip() for p in line.split(',')]
+                            if len(parts) == 2:
+                                try:
+                                    self.label_width_cm = float(parts[0])
+                                    self.label_height_cm = float(parts[1])
+                                except ValueError:
+                                    pass
+                                continue
+                        
+                        if ':' in line:
+                            key, value = [token.strip() for token in line.split(':', 1)]
+                            key_lower = key.lower()
+                            
+                            if key_lower in ('width', '너비'):
+                                try:
+                                    self.label_width_cm = float(value)
+                                except ValueError:
+                                    pass
+                            elif key_lower in ('height', '높이'):
+                                try:
+                                    self.label_height_cm = float(value)
+                                except ValueError:
+                                    pass
+                            elif key_lower == 'font':
+                                self.font_name = value
+                                self._font_loaded_from_settings = True
+                            elif key_lower in ('fontsize', 'font_size', '폰트크기'):
+                                try:
+                                    self.font_size = int(float(value))
+                                    self._font_loaded_from_settings = True
+                                except ValueError:
+                                    pass
+                            elif key_lower in ('extra_weight', 'extraweight', 'tare', '기타무게'):
+                                try:
+                                    self.extra_weight = float(value)
+                                except ValueError:
+                                    pass
+                            elif key_lower in ('default_printer', 'defaultprinter'):
+                                if value:
+                                    self.default_printer_name = value
+                            elif key_lower in ('default_label_copies', 'label_copies', '라벨매수'):
+                                try:
+                                    self.default_label_copies = int(float(value))
+                                except ValueError:
+                                    pass
+                            elif key_lower in ('default_bulk_copies', 'bulk_copies', '벌크매수'):
+                                try:
+                                    self.default_bulk_copies = int(float(value))
+                                except ValueError:
+                                    pass
                 print(f"라벨 크기 설정 로드: {self.label_width_cm}cm x {self.label_height_cm}cm")
         except Exception as e:
             print(f"라벨 크기 설정 파일 읽기 실패: {e}, 기본값 사용")
     
     def load_font_from_txt(self):
         """TXT 파일에서 폰트 설정 읽기"""
+        if getattr(self, '_font_loaded_from_settings', False):
+            return
         try:
             config_file = "label_size.txt"
             if os.path.exists(config_file):
@@ -770,6 +838,27 @@ class LabelPrinterGUI:
         except Exception as e:
             print(f"폰트 설정 파일 읽기 실패: {e}, 기본값 사용")
     
+    def save_settings(self):
+        """현재 설정을 label_size.txt에 저장"""
+        try:
+            config_file = "label_size.txt"
+            lines = [
+                f"{self.label_width_cm:g},{self.label_height_cm:g}",
+                f"font: {self.font_name}",
+                f"fontsize: {self.font_size}",
+                f"extra_weight: {self.extra_weight:g}",
+                f"default_label_copies: {self.default_label_copies}",
+                f"default_bulk_copies: {self.default_bulk_copies}",
+            ]
+            if self.default_printer_name:
+                lines.append(f"default_printer: {self.default_printer_name}")
+            
+            with open(config_file, 'w', encoding='utf-8') as f:
+                f.write('\n'.join(str(line) for line in lines))
+                f.write('\n')
+        except Exception as e:
+            print(f"설정 저장 실패: {e}")
+    
     def on_font_changed(self, *args):
         """폰트 변경 시 미리보기 업데이트"""
         try:
@@ -777,6 +866,7 @@ class LabelPrinterGUI:
             self.font_size = int(float(self.font_size_var.get() or "48"))
             if hasattr(self, 'label_canvas'):
                 self.update_label_preview()
+            self.save_settings()
         except (ValueError, AttributeError):
             pass  # 잘못된 입력값 무시
     
@@ -906,21 +996,27 @@ class LabelPrinterGUI:
         self.pallet_weight_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
         self.pallet_weight_var.trace_add('write', self.calculate_net_weight)
         
+        # 기타 무게
+        ttk.Label(form_frame, text="기타 무게 (kg):").grid(row=2, column=0, sticky=tk.W, pady=2)
+        self.extra_weight_var = tk.StringVar(value=str(self.extra_weight))
+        ttk.Entry(form_frame, textvariable=self.extra_weight_var, width=15).grid(row=2, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
+        self.extra_weight_var.trace_add('write', self.on_extra_weight_changed)
+        
         # 순수무게 (자동 계산)
-        ttk.Label(form_frame, text="순수무게 (kg):").grid(row=2, column=0, sticky=tk.W, pady=2)
+        ttk.Label(form_frame, text="순수무게 (kg):").grid(row=3, column=0, sticky=tk.W, pady=2)
         self.net_weight_var = tk.StringVar()
         self.net_weight_label = ttk.Label(form_frame, textvariable=self.net_weight_var, foreground="blue", font=("Arial", 10, "bold"))
-        self.net_weight_label.grid(row=2, column=1, sticky=tk.W, pady=2, padx=(10, 0))
+        self.net_weight_label.grid(row=3, column=1, sticky=tk.W, pady=2, padx=(10, 0))
         
         # 날짜 (자동 설정)
-        ttk.Label(form_frame, text="날짜:").grid(row=3, column=0, sticky=tk.W, pady=2)
+        ttk.Label(form_frame, text="날짜:").grid(row=4, column=0, sticky=tk.W, pady=2)
         self.date_var = tk.StringVar(value=datetime.now().strftime('%Y-%m-%d'))
         self.date_label = ttk.Label(form_frame, textvariable=self.date_var, foreground="gray")
-        self.date_label.grid(row=3, column=1, sticky=tk.W, pady=2, padx=(10, 0))
+        self.date_label.grid(row=4, column=1, sticky=tk.W, pady=2, padx=(10, 0))
         
         # 폰트 설정
         font_frame = ttk.Frame(form_frame)
-        font_frame.grid(row=4, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=2)
+        font_frame.grid(row=5, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=2)
         
         ttk.Label(font_frame, text="폰트:").pack(side=tk.LEFT, padx=(0, 5))
         self.font_name_var = tk.StringVar(value=self.font_name)
@@ -936,18 +1032,25 @@ class LabelPrinterGUI:
         self.font_size_var.trace_add('write', self.on_font_changed)
         
         # 프린터 선택
-        ttk.Label(form_frame, text="프린터 선택:").grid(row=5, column=0, sticky=tk.W, pady=2)
+        ttk.Label(form_frame, text="프린터 선택:").grid(row=6, column=0, sticky=tk.W, pady=2)
         self.printer_var = tk.StringVar()
         self.printer_combo = ttk.Combobox(form_frame, textvariable=self.printer_var, state="readonly", width=15)
-        self.printer_combo.grid(row=5, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
+        self.printer_combo.grid(row=6, column=1, sticky=(tk.W, tk.E), pady=2, padx=(10, 0))
+        self.printer_combo.bind("<<ComboboxSelected>>", self.on_printer_selected)
+        
+        # 인쇄 매수
+        ttk.Label(form_frame, text="인쇄 매수:").grid(row=7, column=0, sticky=tk.W, pady=2)
+        self.copies_var = tk.StringVar(value=str(self.default_label_copies))
+        ttk.Entry(form_frame, textvariable=self.copies_var, width=10).grid(row=7, column=1, sticky=tk.W, pady=2, padx=(10, 0))
         
         # 라벨 미리보기 영역 추가
         self.setup_label_preview(form_frame)
+        self.calculate_net_weight()
     
     def setup_label_preview(self, parent):
         """라벨 미리보기 Canvas 설정"""
         preview_frame = ttk.LabelFrame(parent, text="라벨 미리보기", padding="5")
-        preview_frame.grid(row=6, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
+        preview_frame.grid(row=8, column=0, columnspan=2, sticky=(tk.W, tk.E), pady=(10, 0))
         
         # Canvas 생성 (라벨 용지 사이즈에 맞게, 1.5배 크기로 미리보기 - 더 작게)
         # 1cm = 37.8 pixels @ 96 DPI
@@ -1016,7 +1119,20 @@ class LabelPrinterGUI:
             # 데이터 가져오기
             total_weight = self.total_weight_var.get() or "0"
             pallet_weight = self.pallet_weight_var.get() or "0"
-            net_weight = float(total_weight) - float(pallet_weight) if total_weight and pallet_weight else 0
+            extra_weight = self.extra_weight_var.get() or "0"
+            try:
+                total_val = float(total_weight)
+            except ValueError:
+                total_val = 0
+            try:
+                pallet_val = float(pallet_weight)
+            except ValueError:
+                pallet_val = 0
+            try:
+                extra_val = float(extra_weight)
+            except ValueError:
+                extra_val = 0
+            net_weight = total_val - pallet_val - extra_val
             
             # 순수무게만 정가운데 크게 표시
             if net_weight > 0:
@@ -1156,16 +1272,20 @@ class LabelPrinterGUI:
             messagebox.showinfo("성공", "양식이 저장되었습니다.")
         
         def fill_from_label_inline():
-            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력"""
+            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력 (순수무게)"""
             label_data = self.get_label_data()
-            total_weight = label_data.get('total_weight', '')
+            net_weight = label_data.get('net_weight', '')
             
-            if total_weight:
-                # 첫 번째 빈 행에 Total KG 입력
+            if net_weight:
+                # 첫 번째 빈 행에 Total KG 입력 (순수무게)
                 for row_data in self.table_data_inline:
                     if not row_data['total_kg'].get():
-                        row_data['total_kg'].set(total_weight)
+                        row_data['total_kg'].set(net_weight)
                         break
+        
+        self.bulk_copies_var = tk.StringVar(value=str(self.default_bulk_copies))
+        ttk.Label(button_frame, text="인쇄 매수:").pack(side=tk.LEFT, padx=5)
+        ttk.Entry(button_frame, textvariable=self.bulk_copies_var, width=6).pack(side=tk.LEFT, padx=(0, 10))
         
         ttk.Button(button_frame, text="라벨 데이터 가져오기", command=fill_from_label_inline).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="미리보기", command=self.preview_bulk_sheet_inline).pack(side=tk.LEFT, padx=5)
@@ -1354,7 +1474,8 @@ class LabelPrinterGUI:
             'quality_checked': self.form_data_inline['quality_checked'].get(),
             'verified_by_qa': self.form_data_inline['verified_by_qa'].get(),
             'supervisor_signature': self.form_data_inline['supervisor_signature'].get(),
-            'sign_date': self.form_data_inline['date'].get()
+            'sign_date': self.form_data_inline['date'].get(),
+            'copies': self.bulk_copies_var.get() if hasattr(self, 'bulk_copies_var') else str(self.default_bulk_copies)
         }
         
         notes_widget = self.form_data_inline['production_notes']
@@ -1399,8 +1520,17 @@ class LabelPrinterGUI:
             return
         
         try:
+            copies_value = data.get('copies', self.default_bulk_copies)
+            try:
+                copies = int(copies_value)
+            except (ValueError, TypeError):
+                copies = self.default_bulk_copies
+            if copies < 1:
+                messagebox.showerror("오류", "인쇄 매수는 1 이상의 정수여야 합니다.")
+                return
+            data['copies'] = str(copies)
             pdf_path = self.printer.create_bulk_production_sheet_pdf(data)
-            success = self.printer.print_label(pdf_path)
+            success = self.printer.print_label(pdf_path, copies=copies)
             if success:
                 messagebox.showinfo("성공", "벌크 생산 시트가 기본 프린터로 인쇄되었습니다.")
             else:
@@ -1469,20 +1599,20 @@ class LabelPrinterGUI:
                     self.table_data_inline[row_idx]['bulk_bag_qty'].set(first_bag_qty)
     
     def add_to_production_form(self, label_data):
-        """모바일 API로 인쇄 시 양식 테이블에 Total KG 자동 추가"""
+        """모바일 API로 인쇄 시 양식 테이블에 Total KG 자동 추가 (순수무게)"""
         if not hasattr(self, 'table_data_inline'):
             return
         
-        total_weight = label_data.get('total_weight', '')
-        if not total_weight:
+        net_weight = label_data.get('net_weight', '')
+        if not net_weight:
             return
         
-        # 첫 번째 빈 행에 Total KG 입력
+        # 첫 번째 빈 행에 Total KG 입력 (순수무게)
         for i, row_data in enumerate(self.table_data_inline):
             current_total_kg = row_data['total_kg'].get()
             if not current_total_kg:
-                # Total KG 입력
-                row_data['total_kg'].set(total_weight)
+                # Total KG 입력 (순수무게)
+                row_data['total_kg'].set(net_weight)
                 
                 # Pallet 번호 자동 증가
                 if not row_data['pallet_num'].get():
@@ -1513,18 +1643,36 @@ class LabelPrinterGUI:
                 
                 break  # 첫 번째 빈 행에만 입력
     
+    def on_extra_weight_changed(self, *args):
+        """기타 무게 변경 시 처리"""
+        value = self.extra_weight_var.get()
+        try:
+            self.extra_weight = float(value or 0)
+            self.save_settings()
+        except ValueError:
+            # 숫자가 입력되지 않은 경우 저장하지 않음
+            pass
+        self.calculate_net_weight()
+    
     def calculate_net_weight(self, *args):
         """순수무게 자동 계산"""
         try:
             total_weight = float(self.total_weight_var.get() or 0)
-            pallet_weight = float(self.pallet_weight_var.get() or 0)
-            net_weight = total_weight - pallet_weight
-            
-            if net_weight > 0:
-                self.net_weight_var.set(f"{net_weight:.1f} kg")
-            else:
-                self.net_weight_var.set("0.0 kg")
         except ValueError:
+            total_weight = 0
+        try:
+            pallet_weight = float(self.pallet_weight_var.get() or 0)
+        except ValueError:
+            pallet_weight = 0
+        try:
+            extra_weight = float(self.extra_weight_var.get() or 0)
+        except ValueError:
+            extra_weight = self.extra_weight if isinstance(self.extra_weight, (int, float)) else 0
+        
+        net_weight = total_weight - pallet_weight - extra_weight
+        if net_weight > 0:
+            self.net_weight_var.set(f"{net_weight:.1f} kg")
+        else:
             self.net_weight_var.set("0.0 kg")
     
     def reset_form(self):
@@ -1533,24 +1681,32 @@ class LabelPrinterGUI:
         self.pallet_weight_var.set("")
         self.net_weight_var.set("0.0 kg")
         self.date_var.set(datetime.now().strftime('%Y-%m-%d'))
+        if hasattr(self, 'extra_weight_var'):
+            self.extra_weight_var.set(str(self.extra_weight))
+        if hasattr(self, 'copies_var'):
+            self.copies_var.set(str(self.default_label_copies))
+        self.calculate_net_weight()
         
     def get_label_data(self):
         """입력된 라벨 데이터 가져오기"""
         try:
             total_weight = float(self.total_weight_var.get() or 0)
             pallet_weight = float(self.pallet_weight_var.get() or 0)
-            net_weight = total_weight - pallet_weight
+            extra_weight = float(self.extra_weight_var.get() or 0)
+            net_weight = total_weight - pallet_weight - extra_weight
         except ValueError:
             net_weight = 0
             
         return {
             'total_weight': self.total_weight_var.get(),
             'pallet_weight': self.pallet_weight_var.get(),
+            'extra_weight': self.extra_weight_var.get(),
             'net_weight': f"{net_weight:.1f}",
             'weight': f"{net_weight:.1f}",  # 라벨에 표시될 무게 (순수무게)
             'date': self.date_var.get(),
             'printer': self.printer_var.get(),
-            'product_name': '제품'  # 기본값
+            'product_name': '제품',  # 기본값
+            'copies': self.copies_var.get() if hasattr(self, 'copies_var') else "1"
         }
         
     def validate_data(self, data):
@@ -1568,8 +1724,21 @@ class LabelPrinterGUI:
             return False
         
         try:
+            copies = int(data.get('copies', self.default_label_copies) or self.default_label_copies)
+            if copies < 1:
+                raise ValueError
+        except ValueError:
+            messagebox.showerror("오류", "인쇄 매수는 1 이상의 정수여야 합니다.")
+            return False
+        data['copies'] = str(copies)
+        
+        try:
             total_weight = float(data['total_weight'])
             pallet_weight = float(data['pallet_weight'])
+            extra_weight = float(data.get('extra_weight', self.extra_weight) or self.extra_weight)
+            if extra_weight < 0:
+                messagebox.showerror("오류", "기타 무게는 0 이상이어야 합니다.")
+                return False
             
             if total_weight <= 0:
                 messagebox.showerror("오류", "총무게는 0보다 큰 값이어야 합니다.")
@@ -1579,9 +1748,10 @@ class LabelPrinterGUI:
                 messagebox.showerror("오류", "팔렛무게는 0 이상이어야 합니다.")
                 return False
                 
-            if pallet_weight >= total_weight:
-                messagebox.showerror("오류", "팔렛무게는 총무게보다 작아야 합니다.")
+            if pallet_weight + extra_weight >= total_weight:
+                messagebox.showerror("오류", "팔렛무게와 기타 무게 합은 총무게보다 작아야 합니다.")
                 return False
+                data['extra_weight'] = f"{extra_weight:g}"
                 
         except ValueError:
             messagebox.showerror("오류", "무게는 숫자여야 합니다.")
@@ -1634,7 +1804,20 @@ class LabelPrinterGUI:
             # 데이터 가져오기
             total_weight = data['total_weight'] or "0"
             pallet_weight = data['pallet_weight'] or "0"
-            net_weight = float(total_weight) - float(pallet_weight) if total_weight and pallet_weight else 0
+            extra_weight = data.get('extra_weight', "0") or "0"
+            try:
+                total_val = float(total_weight)
+            except ValueError:
+                total_val = 0
+            try:
+                pallet_val = float(pallet_weight)
+            except ValueError:
+                pallet_val = 0
+            try:
+                extra_val = float(extra_weight)
+            except ValueError:
+                extra_val = 0
+            net_weight = total_val - pallet_val - extra_val
             
             # 테두리가 이미지 가장자리에 바로 붙도록 오프셋 제거
             offset_px = 0
@@ -1826,9 +2009,24 @@ class LabelPrinterGUI:
             
             # 이미지를 프린터로 직접 전송 (Word/한글 방식)
             # 라벨용지 사이즈 전달하여 정확한 크기로 인쇄
-            success = self.printer.print_image(temp_img_path, actual_printer_name, 
-                                               label_width_cm=self.label_width_cm, 
-                                               label_height_cm=self.label_height_cm)
+            copies = self.default_label_copies
+            try:
+                copies = int(data.get('copies', self.default_label_copies) or self.default_label_copies)
+            except (ValueError, TypeError):
+                copies = self.default_label_copies
+            if copies < 1:
+                copies = self.default_label_copies
+            
+            success = True
+            for copy_idx in range(copies):
+                if not self.printer.print_image(
+                    temp_img_path,
+                    actual_printer_name,
+                    label_width_cm=self.label_width_cm,
+                    label_height_cm=self.label_height_cm
+                ):
+                    success = False
+                    break
             
             # 임시 파일 삭제
             try:
@@ -1848,12 +2046,12 @@ class LabelPrinterGUI:
                 # 양식 기록 옵션 제공 - 인라인 양식에 자동 입력
                 response = messagebox.askyesno("양식 기록", "Daily Bulk Production Sheet 양식의 Total KG에 자동 입력하시겠습니까?")
                 if response:
-                    total_weight = data.get('total_weight', '')
-                    if total_weight and hasattr(self, 'table_data_inline'):
-                        # 첫 번째 빈 행에 Total KG 입력
+                    net_weight = data.get('net_weight', '')
+                    if net_weight and hasattr(self, 'table_data_inline'):
+                        # 첫 번째 빈 행에 Total KG 입력 (순수무게)
                         for row_data in self.table_data_inline:
                             if not row_data['total_kg'].get():
-                                row_data['total_kg'].set(total_weight)
+                                row_data['total_kg'].set(net_weight)
                                 break
             else:
                 messagebox.showerror("오류", "인쇄에 실패했습니다. 프린터 설정을 확인해주세요.")
@@ -1979,11 +2177,36 @@ class LabelPrinterGUI:
         # 콤보박스 업데이트
         self.printer_combo['values'] = printer_list
         if printer_list:
-            # 현재 선택된 값이 없거나 목록에 없으면 첫 번째 항목 선택
-            current_value = self.printer_var.get()
-            if not current_value or current_value not in printer_list:
-                self.printer_combo.current(0)
-                self.printer_var.set(printer_list[0])
+            selected_display = None
+            if self.default_printer_name:
+                for display_name, actual_name in self.printer_names.items():
+                    if actual_name == self.default_printer_name:
+                        selected_display = display_name
+                        break
+            if not selected_display:
+                current_value = self.printer_var.get()
+                if current_value in printer_list:
+                    selected_display = current_value
+            if not selected_display:
+                selected_display = printer_list[0]
+                actual = self.printer_names.get(selected_display)
+                if actual:
+                    self.default_printer_name = actual
+                    self.save_settings()
+            self.printer_var.set(selected_display)
+            try:
+                index = printer_list.index(selected_display)
+                self.printer_combo.current(index)
+            except ValueError:
+                self.printer_combo.set(selected_display)
+    
+    def on_printer_selected(self, event=None):
+        """프린터 선택 변경 시 기본 프린터 저장"""
+        display_name = self.printer_var.get()
+        actual_name = self.printer_names.get(display_name)
+        if actual_name and actual_name != self.default_printer_name:
+            self.default_printer_name = actual_name
+            self.save_settings()
     
     def save_print_record(self, data):
         """인쇄 기록 저장"""
@@ -1993,7 +2216,8 @@ class LabelPrinterGUI:
             'pallet_weight': data['pallet_weight'],
             'net_weight': data['net_weight'],
             'printer': data['printer'],
-            'date': data['date']
+            'date': data['date'],
+            'copies': data.get('copies', str(self.default_label_copies))
         }
         
         self.print_history.insert(0, record)  # 최신 기록을 맨 위에 추가
@@ -2010,7 +2234,8 @@ class LabelPrinterGUI:
         self.print_history_listbox.delete(0, tk.END)
         
         for record in self.print_history:
-            display_text = f"{record['timestamp']} | 총:{record['total_weight']}kg 팔렛:{record['pallet_weight']}kg 순수:{record['net_weight']}kg | {record['printer']}"
+            copies_str = record.get('copies', str(self.default_label_copies))
+            display_text = f"{record['timestamp']} | 총:{record['total_weight']}kg 팔렛:{record['pallet_weight']}kg 순수:{record['net_weight']}kg | {record['printer']} | 매수:{copies_str}"
             self.print_history_listbox.insert(tk.END, display_text)
     
     def clear_print_history(self):
@@ -2073,13 +2298,14 @@ class LabelPrinterGUI:
                 try:
                     total_weight = float(data['total_weight'])
                     pallet_weight = float(data['pallet_weight'])
-                    net_weight = total_weight - pallet_weight
+                    extra_weight = float(data.get('extra_weight', self.extra_weight) or self.extra_weight)
+                    net_weight = total_weight - pallet_weight - extra_weight
                     
                     if net_weight <= 0:
                         return jsonify({
                             'success': False,
                             'error': 'INVALID_WEIGHT',
-                            'message': '팔렛무게가 총무게보다 크거나 같습니다.'
+                            'message': '팔렛무게와 기타 무게의 합이 총무게보다 크거나 같습니다.'
                         }), 400
                         
                 except ValueError:
@@ -2088,6 +2314,19 @@ class LabelPrinterGUI:
                         'error': 'INVALID_WEIGHT_FORMAT',
                         'message': '무게는 숫자여야 합니다.'
                     }), 400
+                
+                try:
+                    copies = int(data.get('copies', self.default_label_copies) or self.default_label_copies)
+                    if copies < 1:
+                        raise ValueError
+                except (ValueError, TypeError):
+                    return jsonify({
+                        'success': False,
+                        'error': 'INVALID_COPIES',
+                        'message': '인쇄 매수는 1 이상의 정수여야 합니다.'
+                    }), 400
+                
+                data['copies'] = str(copies)
                 
                 # 기본값 설정
                 data['net_weight'] = f"{net_weight:.1f}"
@@ -2134,7 +2373,20 @@ class LabelPrinterGUI:
                 # 순수무게 사용
                 total_weight_str = data.get('total_weight', '0')
                 pallet_weight_str = data.get('pallet_weight', '0')
-                net_weight = float(total_weight_str) - float(pallet_weight_str) if total_weight_str and pallet_weight_str else 0
+                extra_weight_str = data.get('extra_weight', '0')
+                try:
+                    total_val = float(total_weight_str)
+                except ValueError:
+                    total_val = 0
+                try:
+                    pallet_val = float(pallet_weight_str)
+                except ValueError:
+                    pallet_val = 0
+                try:
+                    extra_val = float(extra_weight_str)
+                except ValueError:
+                    extra_val = 0
+                net_weight = total_val - pallet_val - extra_val
                 
                 if net_weight > 0:
                     # 1. 테두리 그리기
@@ -2261,9 +2513,16 @@ class LabelPrinterGUI:
                 print(f"✅ API 인쇄 - PIL Image 생성 완료: {target_width} x {target_height} 픽셀 (300 DPI)")
                 
                 # 이미지를 프린터로 직접 전송 (Word/한글 방식)
-                success = self.printer.print_image(temp_img_path, actual_printer_name, 
-                                                   label_width_cm=self.label_width_cm, 
-                                                   label_height_cm=self.label_height_cm)
+                success = True
+                for copy_idx in range(copies):
+                    if not self.printer.print_image(
+                        temp_img_path,
+                        actual_printer_name,
+                        label_width_cm=self.label_width_cm,
+                        label_height_cm=self.label_height_cm
+                    ):
+                        success = False
+                        break
                 
                 # 임시 파일 삭제
                 try:
@@ -2291,6 +2550,8 @@ class LabelPrinterGUI:
                             'pallet_weight': data.get('pallet_weight'),
                             'net_weight': data.get('net_weight'),
                             'printer': data.get('printer'),
+                        'extra_weight': data.get('extra_weight'),
+                            'copies': copies,
                             'print_time': datetime.now().isoformat()
                         }
                     })
@@ -2626,15 +2887,15 @@ class LabelPrinterGUI:
         
         # 라벨 인쇄 시 자동으로 TOTAL KG에 입력하기 위한 함수
         def fill_from_label():
-            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력"""
+            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력 (순수무게)"""
             label_data = self.get_label_data()
-            total_weight = label_data.get('total_weight', '')
+            net_weight = label_data.get('net_weight', '')
             
-            if total_weight:
-                # 첫 번째 빈 행에 Total KG 입력
+            if net_weight:
+                # 첫 번째 빈 행에 Total KG 입력 (순수무게)
                 for row_data in table_data:
                     if not row_data['total_kg'].get():
-                        row_data['total_kg'].set(total_weight)
+                        row_data['total_kg'].set(net_weight)
                         break
         
         ttk.Button(button_frame, text="라벨 데이터 가져오기", command=fill_from_label).pack(side=tk.LEFT, padx=5)
@@ -2764,11 +3025,11 @@ class LabelPrinterGUI:
             table_data.append(row_data)
         form_data['production_table'] = table_data
         
-        # 라벨 데이터에서 TOTAL KG 자동 입력 (첫 번째 빈 행)
-        total_weight = label_data.get('total_weight', '')
-        if total_weight:
+        # 라벨 데이터에서 TOTAL KG 자동 입력 (첫 번째 빈 행, 순수무게)
+        net_weight = label_data.get('net_weight', '')
+        if net_weight:
             try:
-                table_data[0]['total_kg'].set(total_weight)
+                table_data[0]['total_kg'].set(net_weight)
             except:
                 pass
         
@@ -2840,15 +3101,15 @@ class LabelPrinterGUI:
             form_window.destroy()
         
         def fill_from_label():
-            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력"""
+            """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력 (순수무게)"""
             label_data = self.get_label_data()
-            total_weight = label_data.get('total_weight', '')
+            net_weight = label_data.get('net_weight', '')
             
-            if total_weight:
-                # 첫 번째 빈 행에 Total KG 입력
+            if net_weight:
+                # 첫 번째 빈 행에 Total KG 입력 (순수무게)
                 for row_data in table_data:
                     if not row_data['total_kg'].get():
-                        row_data['total_kg'].set(total_weight)
+                        row_data['total_kg'].set(net_weight)
                         break
         
         ttk.Button(button_frame, text="라벨 데이터 가져오기", command=fill_from_label).pack(side=tk.LEFT, padx=5)
@@ -2880,6 +3141,10 @@ class LabelPrinterGUI:
     def on_closing(self):
         """프로그램 종료 시"""
         self.server_running = False
+        try:
+            self.save_settings()
+        except Exception:
+            pass
         self.root.destroy()
 
 def main():

@@ -53,14 +53,27 @@ def build_windows_executable():
         print(f"빌드 중 오류가 발생했습니다: {e}")
         return False
 
-def create_windows_installer():
-    """윈도우용 설치 패키지 생성 (선택사항)"""
-    print("\n윈도우용 설치 패키지를 생성하시겠습니까? (y/n): ", end="")
-    choice = input().lower()
+def compile_inno_setup():
+    """Inno Setup 설치 파일 생성 시도"""
+    installer_script = os.path.join("installer", "LabelPrinterInstaller.iss")
+    if not os.path.exists(installer_script):
+        print(f"Inno Setup 스크립트를 찾을 수 없습니다: {installer_script}")
+        print("installer/LabelPrinterInstaller.iss 파일이 있는지 확인하세요.")
+        return
     
-    if choice == 'y':
-        print("NSIS 또는 Inno Setup을 사용하여 설치 패키지를 생성할 수 있습니다.")
-        print("자세한 내용은 README.md를 참조하세요.")
+    iscc = os.environ.get("INNO_SETUP_COMPILER", r"C:\Program Files (x86)\Inno Setup 6\ISCC.exe")
+    if not os.path.exists(iscc):
+        print("\nInno Setup 컴파일러(ISCC.exe)를 찾을 수 없습니다.")
+        print("Inno Setup을 설치하고, 환경변수 INNO_SETUP_COMPILER에 ISCC.exe 경로를 지정하면 자동으로 설치 파일을 만들 수 있습니다.")
+        print("Inno Setup 다운로드: https://jrsoftware.org/isinfo.php")
+        return
+    
+    print("\nInno Setup을 사용하여 설치 파일을 생성합니다...")
+    try:
+        subprocess.run([iscc, installer_script], check=True)
+        print("설치 파일 생성 완료! installer/Output 폴더를 확인하세요.")
+    except subprocess.CalledProcessError as e:
+        print(f"Inno Setup 빌드 중 오류가 발생했습니다: {e}")
 
 def main():
     """메인 함수"""
@@ -83,7 +96,7 @@ def main():
     if success:
         print("\n빌드가 성공적으로 완료되었습니다!")
         print("dist_windows/ 폴더의 LabelPrinter.exe 파일을 윈도우 컴퓨터로 복사하여 사용할 수 있습니다.")
-        create_windows_installer()
+        compile_inno_setup()
     else:
         print("\n빌드에 실패했습니다. 오류를 확인해주세요.")
 

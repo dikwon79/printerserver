@@ -1,3 +1,7 @@
 10,4
 font: Arial
 fontsize: 240
+extra_weight: 3
+default_label_copies: 2
+default_bulk_copies: 1
+default_printer: ZDesigner for Developers - Generic Printer 300dpi
