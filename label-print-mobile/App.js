@@ -1,12 +1,15 @@
 import React from "react";
 import { View, Text, StyleSheet } from "react-native";
+import { SafeAreaProvider } from "react-native-safe-area-context";
 import LabelPrintScreen from "./screens/LabelPrintScreen";
 
 export default function App() {
   return (
-    <View style={styles.container}>
-      <LabelPrintScreen />
-    </View>
+    <SafeAreaProvider>
+      <View style={styles.container}>
+        <LabelPrintScreen />
+      </View>
+    </SafeAreaProvider>
   );
 }
 

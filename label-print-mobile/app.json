@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "label-print-mobile",
+    "name": "라벨 인쇄",
     "slug": "label-print-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
@@ -20,10 +20,26 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#ffffff"
       },
-      "edgeToEdgeEnabled": true
+      "edgeToEdgeEnabled": true,
+      "package": "com.dikwon79.labelprintmobile"
     },
     "web": {
       "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "4742fcb6-ecef-4d01-a89c-ad379d9bc01f"
+      }
     }
   }
 }

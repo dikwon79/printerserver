@@ -11,11 +11,13 @@ import {
   FlatList,
   Modal,
 } from "react-native";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import LabelPrintService from "../services/LabelPrintService";
 
 const BatchPrintScreen = () => {
   const [totalWeight, setTotalWeight] = useState("");
   const [palletWeight, setPalletWeight] = useState("");
+  const [extraWeight, setExtraWeight] = useState("");
   const [netWeight, setNetWeight] = useState("0.00 kg");
   const [selectedPrinter, setSelectedPrinter] = useState("");
   const [printers, setPrinters] = useState([]);
@@ -25,13 +27,43 @@ const BatchPrintScreen = () => {
   const [showIpModal, setShowIpModal] = useState(false);
   const [serverIp, setServerIp] = useState("10.0.0.208");
 
+  // 저장된 설정 불러오기
+  useEffect(() => {
+    loadSavedSettings();
+  }, []);
+
+  // 저장된 설정 불러오기
+  const loadSavedSettings = async () => {
+    try {
+      const savedIp = await AsyncStorage.getItem("serverIp");
+      const savedPrinter = await AsyncStorage.getItem("selectedPrinter");
+      const savedExtraWeight = await AsyncStorage.getItem("extraWeight");
+
+      if (savedIp) {
+        setServerIp(savedIp);
+        LabelPrintService.setServerURL(savedIp);
+      }
+
+      if (savedPrinter) {
+        setSelectedPrinter(savedPrinter);
+      }
+
+      if (savedExtraWeight) {
+        setExtraWeight(savedExtraWeight);
+      }
+    } catch (error) {
+      console.log("설정 불러오기 오류:", error);
+    }
+  };
+
   // 순수무게 자동 계산
   useEffect(() => {
     const total = parseFloat(totalWeight) || 0;
     const pallet = parseFloat(palletWeight) || 0;
-    const net = total - pallet;
+    const extra = parseFloat(extraWeight) || 0;
+    const net = total - pallet - extra;
     setNetWeight(net > 0 ? `${net.toFixed(2)} kg` : "0.00 kg");
-  }, [totalWeight, palletWeight]);
+  }, [totalWeight, palletWeight, extraWeight]);
 
   // 컴포넌트 마운트 시 초기화
   useEffect(() => {
@@ -50,8 +82,15 @@ const BatchPrintScreen = () => {
     const result = await LabelPrintService.getPrinters();
     if (result.success) {
       setPrinters(result.printers);
-      if (result.printers.length > 0 && !selectedPrinter) {
-        setSelectedPrinter(result.printers[0].name);
+      
+      // 저장된 프린터가 있으면 사용, 없으면 첫 번째 프린터 선택
+      const savedPrinter = await AsyncStorage.getItem("selectedPrinter");
+      if (savedPrinter && result.printers.some(p => p.name === savedPrinter)) {
+        setSelectedPrinter(savedPrinter);
+      } else if (result.printers.length > 0 && !selectedPrinter) {
+        const firstPrinter = result.printers[0].name;
+        setSelectedPrinter(firstPrinter);
+        await AsyncStorage.setItem("selectedPrinter", firstPrinter);
       }
     }
   };
@@ -61,9 +100,11 @@ const BatchPrintScreen = () => {
     setShowIpModal(true);
   };
 
-  const confirmIpChange = () => {
+  const confirmIpChange = async () => {
     if (serverIp.trim()) {
-      LabelPrintService.setServerURL(serverIp.trim());
+      const ip = serverIp.trim();
+      LabelPrintService.setServerURL(ip);
+      await AsyncStorage.setItem("serverIp", ip);
       setShowIpModal(false);
       checkServerStatus();
       loadPrinters();
@@ -79,10 +120,11 @@ const BatchPrintScreen = () => {
 
     const total = parseFloat(totalWeight);
     const pallet = parseFloat(palletWeight);
-    const net = total - pallet;
+    const extra = parseFloat(extraWeight) || 0;
+    const net = total - pallet - extra;
 
     if (net <= 0) {
-      Alert.alert("오류", "팔렛무게는 총무게보다 작아야 합니다.");
+      Alert.alert("오류", "순수무게가 0 이하입니다. 무게를 확인해주세요.");
       return;
     }
 
@@ -90,6 +132,7 @@ const BatchPrintScreen = () => {
       id: Date.now().toString(),
       totalWeight: totalWeight,
       palletWeight: palletWeight,
+      extraWeight: extraWeight || "0",
       netWeight: net.toFixed(2),
       printer: selectedPrinter,
       date: new Date().toISOString().split("T")[0],
@@ -105,10 +148,16 @@ const BatchPrintScreen = () => {
   };
 
   // 폼 초기화
-  const resetForm = () => {
+  const resetForm = async () => {
     setTotalWeight("");
     setPalletWeight("");
     setNetWeight("0.00 kg");
+    // 저장된 기타 무게는 항상 유지 (초기화하지 않음)
+    const savedExtraWeight = await AsyncStorage.getItem("extraWeight");
+    if (savedExtraWeight) {
+      setExtraWeight(savedExtraWeight);
+    }
+    // extraWeight는 초기화하지 않고 현재 값 유지
   };
 
   // 전체 인쇄
@@ -128,7 +177,9 @@ const BatchPrintScreen = () => {
     try {
       // 모든 라벨에 선택된 프린터 적용
       const labelsToPrint = labels.map((label) => ({
-        ...label,
+        totalWeight: label.totalWeight,
+        palletWeight: label.palletWeight,
+        extraWeight: label.extraWeight || "0",
         printer: selectedPrinter,
       }));
 
@@ -228,6 +279,22 @@ const BatchPrintScreen = () => {
         </View>
 
         <View style={styles.inputGroup}>
+          <Text style={styles.label}>기타 무게 (kg)</Text>
+          <TextInput
+            style={styles.input}
+            value={extraWeight}
+            onChangeText={async (text) => {
+              setExtraWeight(text);
+              // 기타 무게 저장
+              await AsyncStorage.setItem("extraWeight", text);
+            }}
+            placeholder="기타 무게를 입력하세요 (선택사항)"
+            keyboardType="numeric"
+            returnKeyType="next"
+          />
+        </View>
+
+        <View style={styles.inputGroup}>
           <Text style={styles.label}>순수무게 (kg)</Text>
           <View style={styles.displayField}>
             <Text style={styles.displayText}>{netWeight}</Text>
@@ -254,7 +321,11 @@ const BatchPrintScreen = () => {
                       selectedPrinter === printer.name &&
                         styles.printerSelected,
                     ]}
-                    onPress={() => setSelectedPrinter(printer.name)}
+                    onPress={async () => {
+                      setSelectedPrinter(printer.name);
+                      // 선택한 프린터 저장
+                      await AsyncStorage.setItem("selectedPrinter", printer.name);
+                    }}
                   >
                     <Text
                       style={[

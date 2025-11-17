@@ -43,32 +43,68 @@ class LabelPrinter:
         c.rect(0.2*cm, 0.2*cm, LABEL_WIDTH-0.4*cm, LABEL_HEIGHT-0.4*cm)
         
         # 제품명 (상단)
-        if 'product_name' in data:
-            c.setFont("Helvetica-Bold", 14)
-            c.drawString(0.5*cm, LABEL_HEIGHT-1.5*cm, data['product_name'][:20])
+        c.drawString(0.5*cm, LABEL_HEIGHT-1.2*cm, "제품 라벨")
         
-        # 무게 정보 (중앙, 큰 글씨)
-        if 'weight' in data:
-            c.setFont("Helvetica-Bold", 24)
-            weight_text = f"{data['weight']} kg"
-            text_width = c.stringWidth(weight_text, "Helvetica-Bold", 24)
+        # 순수무게 계산 (total_weight, pallet_weight, extra_weight 사용)
+        net_weight = None
+        if 'net_weight' in data and data['net_weight']:
+            try:
+                net_weight = float(data['net_weight'])
+            except (ValueError, TypeError):
+                net_weight = None
+        
+        if net_weight is None:
+            # net_weight가 없으면 계산
+            total_weight = 0
+            pallet_weight = 0
+            extra_weight = 0
+            
+            try:
+                if 'total_weight' in data and data['total_weight']:
+                    total_weight = float(data['total_weight'])
+            except (ValueError, TypeError):
+                pass
+            
+            try:
+                if 'pallet_weight' in data and data['pallet_weight']:
+                    pallet_weight = float(data['pallet_weight'])
+            except (ValueError, TypeError):
+                pass
+            
+            try:
+                if 'extra_weight' in data and data['extra_weight']:
+                    extra_weight = float(data['extra_weight'])
+            except (ValueError, TypeError):
+                pass
+            
+            net_weight = total_weight - pallet_weight - extra_weight
+        
+        # 순수무게 (중앙, 가장 큰 글씨)
+        if net_weight and net_weight > 0:
+            c.setFont("Helvetica-Bold", 28)
+            net_weight_text = f"{net_weight:.1f} kg"
+            text_width = c.stringWidth(net_weight_text, "Helvetica-Bold", 28)
             x_pos = (LABEL_WIDTH - text_width) / 2
-            c.drawString(x_pos, LABEL_HEIGHT/2 - 0.5*cm, weight_text)
+            c.drawString(x_pos, LABEL_HEIGHT/2 + 0.3*cm, net_weight_text)
         
-        # 날짜 (하단)
-        if 'date' in data:
-            c.setFont("Helvetica", 10)
+        # 총무게와 팔렛무게 (중앙 하단)
+        c.setFont("Helvetica", 10)
+        if 'total_weight' in data and data['total_weight']:
+            total_text = f"총무게: {data['total_weight']} kg"
+            c.drawString(0.5*cm, LABEL_HEIGHT/2 - 0.5*cm, total_text)
+        
+        if 'pallet_weight' in data and data['pallet_weight']:
+            pallet_text = f"팔렛무게: {data['pallet_weight']} kg"
+            c.drawString(0.5*cm, LABEL_HEIGHT/2 - 0.8*cm, pallet_text)
+        
+        # 날짜 (하단 좌측)
+        if 'date' in data and data['date']:
+            c.setFont("Helvetica", 9)
             c.drawString(0.5*cm, 0.8*cm, f"날짜: {data['date']}")
         
-        # 바코드 영역 (우측 하단)
-        if 'barcode' in data:
-            c.setFont("Helvetica", 8)
-            c.drawString(LABEL_WIDTH-3*cm, 0.5*cm, f"ID: {data['barcode']}")
-        
-        # 추가 정보
-        if 'additional_info' in data:
-            c.setFont("Helvetica", 9)
-            c.drawString(0.5*cm, 1.5*cm, data['additional_info'][:30])
+        # 인쇄 시간 (우측 하단)
+        c.setFont("Helvetica", 8)
+        c.drawString(LABEL_WIDTH-3*cm, 0.5*cm, f"시간: {datetime.now().strftime('%H:%M:%S')}")
         
         c.save()
         return pdf_path
@@ -462,38 +498,61 @@ def print_label():
     try:
         data = request.get_json()
         
-        # 필수 데이터 검증
-        if not data.get('weight'):
+        # 필수 데이터 검증 (total_weight와 pallet_weight 필요)
+        if not data.get('total_weight') or not data.get('pallet_weight'):
             return jsonify({
                 'success': False, 
                 'error': 'WEIGHT_REQUIRED',
-                'message': '무게 정보가 필요합니다.'
+                'message': '총무게와 팔렛무게 정보가 필요합니다.'
             }), 400
         
         # 기본값 설정
         if not data.get('date'):
             data['date'] = datetime.now().strftime('%Y-%m-%d')
         
-        if not data.get('product_name'):
-            data['product_name'] = '제품'
+        if not data.get('extra_weight'):
+            data['extra_weight'] = '0'
         
-        if not data.get('barcode'):
-            data['barcode'] = f"ID{datetime.now().strftime('%Y%m%d%H%M%S')}"
+        # 순수무게 계산
+        try:
+            total_weight = float(data['total_weight'])
+            pallet_weight = float(data['pallet_weight'])
+            extra_weight = float(data.get('extra_weight', 0))
+            net_weight = total_weight - pallet_weight - extra_weight
+            
+            if net_weight <= 0:
+                return jsonify({
+                    'success': False,
+                    'error': 'INVALID_WEIGHT',
+                    'message': '순수무게가 0 이하입니다. 무게를 확인해주세요.'
+                }), 400
+            
+            data['net_weight'] = f"{net_weight:.1f}"
+        except (ValueError, TypeError) as e:
+            return jsonify({
+                'success': False,
+                'error': 'INVALID_WEIGHT_FORMAT',
+                'message': '무게 형식이 올바르지 않습니다.'
+            }), 400
+        
+        # 프린터 이름이 있으면 사용
+        printer_name = data.get('printer')
         
         # PDF 생성
         pdf_path = printer.create_label_pdf(data)
         
         # 인쇄 실행
-        success = printer.print_label(pdf_path)
+        success = printer.print_label(pdf_path, printer_name=printer_name)
         
         if success:
             return jsonify({
                 'success': True, 
                 'message': '라벨이 성공적으로 인쇄되었습니다.',
                 'data': {
-                    'label_id': data.get('barcode'),
-                    'weight': data.get('weight'),
-                    'product_name': data.get('product_name'),
+                    'net_weight': data['net_weight'],
+                    'total_weight': data['total_weight'],
+                    'pallet_weight': data['pallet_weight'],
+                    'extra_weight': data.get('extra_weight', '0'),
                     'print_time': datetime.now().isoformat()
                 }
             })
@@ -585,29 +644,68 @@ def print_batch_labels():
         
         for i, label_data in enumerate(labels):
             try:
+                # 필수 데이터 검증
+                if not label_data.get('total_weight') or not label_data.get('pallet_weight'):
+                    results.append({
+                        'index': i,
+                        'success': False,
+                        'error': 'WEIGHT_REQUIRED',
+                        'message': '총무게와 팔렛무게 정보가 필요합니다.'
+                    })
+                    continue
+                
                 # 기본값 설정
                 if not label_data.get('date'):
                     label_data['date'] = datetime.now().strftime('%Y-%m-%d')
-                if not label_data.get('product_name'):
-                    label_data['product_name'] = f'제품 {i+1}'
-                if not label_data.get('barcode'):
-                    label_data['barcode'] = f"ID{datetime.now().strftime('%Y%m%d%H%M%S')}{i}"
+                if not label_data.get('extra_weight'):
+                    label_data['extra_weight'] = '0'
+                
+                # 순수무게 계산
+                try:
+                    total_weight = float(label_data['total_weight'])
+                    pallet_weight = float(label_data['pallet_weight'])
+                    extra_weight = float(label_data.get('extra_weight', 0))
+                    net_weight = total_weight - pallet_weight - extra_weight
+                    
+                    if net_weight <= 0:
+                        results.append({
+                            'index': i,
+                            'success': False,
+                            'error': 'INVALID_WEIGHT',
+                            'message': '순수무게가 0 이하입니다.'
+                        })
+                        continue
+                    
+                    label_data['net_weight'] = f"{net_weight:.1f}"
+                except (ValueError, TypeError):
+                    results.append({
+                        'index': i,
+                        'success': False,
+                        'error': 'INVALID_WEIGHT_FORMAT',
+                        'message': '무게 형식이 올바르지 않습니다.'
+                    })
+                    continue
+                
+                # 프린터 이름이 있으면 사용
+                printer_name = label_data.get('printer')
                 
                 # PDF 생성 및 인쇄
                 pdf_path = printer.create_label_pdf(label_data)
-                success = printer.print_label(pdf_path)
+                success = printer.print_label(pdf_path, printer_name=printer_name)
                 
                 results.append({
                     'index': i,
                     'success': success,
-                    'label_id': label_data.get('barcode'),
-                    'weight': label_data.get('weight')
+                    'net_weight': label_data['net_weight'],
+                    'total_weight': label_data['total_weight'],
+                    'pallet_weight': label_data['pallet_weight']
                 })
                 
                 if success:
                     success_count += 1
                     
             except Exception as e:
+                logger.error(f"라벨 {i} 인쇄 중 오류: {str(e)}")
                 results.append({
                     'index': i,
                     'success': False,
@@ -779,7 +877,7 @@ def get_print_status(label_id):
 
 if __name__ == '__main__':
     print("라벨 인쇄 서버가 시작됩니다...")
-    print("웹 브라우저에서 http://localhost:5000 을 열어주세요")
+    print("웹 브라우저에서 http://localhost:8080 을 열어주세요")
     print("모바일에서도 같은 네트워크의 IP 주소로 접속 가능합니다")
     
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    app.run(host='0.0.0.0', port=8080, debug=True)

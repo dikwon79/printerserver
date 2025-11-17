@@ -6,16 +6,19 @@ import {
   TouchableOpacity,
   StyleSheet,
   Alert,
-  ScrollView,
   ActivityIndicator,
   Modal,
+  ScrollView,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { Picker } from "@react-native-picker/picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import LabelPrintService from "../services/LabelPrintService";
 
 const LabelPrintScreen = () => {
   const [totalWeight, setTotalWeight] = useState("");
   const [palletWeight, setPalletWeight] = useState("");
+  const [extraWeight, setExtraWeight] = useState("");
   const [netWeight, setNetWeight] = useState("0.00 kg");
   const [selectedPrinter, setSelectedPrinter] = useState("");
   const [printers, setPrinters] = useState([]);
@@ -26,13 +29,43 @@ const LabelPrintScreen = () => {
   const [labels, setLabels] = useState([]);
   const [showBatchMode, setShowBatchMode] = useState(false);
 
+  // 저장된 설정 불러오기
+  useEffect(() => {
+    loadSavedSettings();
+  }, []);
+
+  // 저장된 설정 불러오기
+  const loadSavedSettings = async () => {
+    try {
+      const savedIp = await AsyncStorage.getItem("serverIp");
+      const savedPrinter = await AsyncStorage.getItem("selectedPrinter");
+      const savedExtraWeight = await AsyncStorage.getItem("extraWeight");
+
+      if (savedIp) {
+        setServerIp(savedIp);
+        LabelPrintService.setServerURL(savedIp);
+      }
+
+      if (savedPrinter) {
+        setSelectedPrinter(savedPrinter);
+      }
+
+      if (savedExtraWeight) {
+        setExtraWeight(savedExtraWeight);
+      }
+    } catch (error) {
+      console.log("설정 불러오기 오류:", error);
+    }
+  };
+
   // 순수무게 자동 계산
   useEffect(() => {
     const total = parseFloat(totalWeight) || 0;
     const pallet = parseFloat(palletWeight) || 0;
-    const net = total - pallet;
+    const extra = parseFloat(extraWeight) || 0;
+    const net = total - pallet - extra;
     setNetWeight(net > 0 ? `${net.toFixed(2)} kg` : "0.00 kg");
-  }, [totalWeight, palletWeight]);
+  }, [totalWeight, palletWeight, extraWeight]);
 
   // 컴포넌트 마운트 시 초기화
   useEffect(() => {
@@ -56,9 +89,16 @@ const LabelPrintScreen = () => {
       console.log("✅ 받은 프린터 목록:", result.printers);
       console.log("📊 프린터 배열 길이:", result.printers.length);
       setPrinters(result.printers);
-      if (result.printers.length > 0 && !selectedPrinter) {
+      
+      // 저장된 프린터가 있으면 사용, 없으면 첫 번째 프린터 선택
+      const savedPrinter = await AsyncStorage.getItem("selectedPrinter");
+      if (savedPrinter && result.printers.some(p => p.name === savedPrinter)) {
+        setSelectedPrinter(savedPrinter);
+      } else if (result.printers.length > 0 && !selectedPrinter) {
         console.log("🎯 첫 번째 프린터 선택:", result.printers[0].name);
-        setSelectedPrinter(result.printers[0].name);
+        const firstPrinter = result.printers[0].name;
+        setSelectedPrinter(firstPrinter);
+        await AsyncStorage.setItem("selectedPrinter", firstPrinter);
       }
     } else {
       console.log("❌ 프린터 목록 로딩 실패:", result.message);
@@ -70,9 +110,11 @@ const LabelPrintScreen = () => {
     setShowIpModal(true);
   };
 
-  const confirmIpChange = () => {
+  const confirmIpChange = async () => {
     if (serverIp.trim()) {
-      LabelPrintService.setServerURL(serverIp.trim());
+      const ip = serverIp.trim();
+      LabelPrintService.setServerURL(ip);
+      await AsyncStorage.setItem("serverIp", ip);
       setShowIpModal(false);
       checkServerStatus();
       loadPrinters();
@@ -88,10 +130,11 @@ const LabelPrintScreen = () => {
 
     const total = parseFloat(totalWeight);
     const pallet = parseFloat(palletWeight);
-    const net = total - pallet;
+    const extra = parseFloat(extraWeight) || 0;
+    const net = total - pallet - extra;
 
     if (net <= 0) {
-      Alert.alert("오류", "팔렛무게는 총무게보다 작아야 합니다.");
+      Alert.alert("오류", "순수무게가 0 이하입니다. 무게를 확인해주세요.");
       return;
     }
 
@@ -99,6 +142,7 @@ const LabelPrintScreen = () => {
       id: Date.now().toString(),
       totalWeight: totalWeight,
       palletWeight: palletWeight,
+      extraWeight: extraWeight || "0",
       netWeight: net.toFixed(2),
       printer: selectedPrinter,
       date: new Date().toISOString().split("T")[0],
@@ -128,10 +172,11 @@ const LabelPrintScreen = () => {
 
     const total = parseFloat(totalWeight);
     const pallet = parseFloat(palletWeight);
-    const net = total - pallet;
+    const extra = parseFloat(extraWeight) || 0;
+    const net = total - pallet - extra;
 
     if (net <= 0) {
-      Alert.alert("오류", "팔렛무게는 총무게보다 작아야 합니다.");
+      Alert.alert("오류", "순수무게가 0 이하입니다. 무게를 확인해주세요.");
       return;
     }
 
@@ -141,6 +186,7 @@ const LabelPrintScreen = () => {
       const printData = {
         totalWeight: totalWeight,
         palletWeight: palletWeight,
+        extraWeight: extraWeight || "0",
         printer: selectedPrinter,
       };
 
@@ -175,6 +221,7 @@ const LabelPrintScreen = () => {
       const labelsToPrint = labels.map((label) => ({
         totalWeight: label.totalWeight,
         palletWeight: label.palletWeight,
+        extraWeight: label.extraWeight || "0",
         printer: label.printer,
       }));
 
@@ -203,18 +250,27 @@ const LabelPrintScreen = () => {
   };
 
   // 폼 초기화
-  const resetForm = () => {
+  const resetForm = async () => {
     setTotalWeight("");
     setPalletWeight("");
     setNetWeight("0.00 kg");
-    setSelectedPrinter("");
+    // 저장된 기타 무게는 항상 유지 (초기화하지 않음)
+    const savedExtraWeight = await AsyncStorage.getItem("extraWeight");
+    if (savedExtraWeight) {
+      setExtraWeight(savedExtraWeight);
+    }
+    // extraWeight는 초기화하지 않고 현재 값 유지
+    // 저장된 프린터는 유지
+    const savedPrinter = await AsyncStorage.getItem("selectedPrinter");
+    if (savedPrinter) {
+      setSelectedPrinter(savedPrinter);
+    } else {
+      setSelectedPrinter("");
+    }
   };
 
-  // 현재 날짜
-  const currentDate = new Date().toISOString().split("T")[0];
-
   return (
-    <ScrollView style={styles.container}>
+    <SafeAreaView style={styles.container} edges={['top']}>
       <View style={styles.header}>
         <Text style={styles.title}>🏷️ 라벨 인쇄</Text>
 
@@ -235,98 +291,6 @@ const LabelPrintScreen = () => {
             {serverStatus === "error" && "⚠️ 서버 오류"}
           </Text>
         </View>
-      </View>
-
-      <View style={styles.form}>
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>총무게 (kg) *</Text>
-          <TextInput
-            style={styles.input}
-            value={totalWeight}
-            onChangeText={setTotalWeight}
-            placeholder="총무게를 입력하세요"
-            keyboardType="numeric"
-            returnKeyType="next"
-          />
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>팔렛무게 (kg) *</Text>
-          <TextInput
-            style={styles.input}
-            value={palletWeight}
-            onChangeText={setPalletWeight}
-            placeholder="팔렛무게를 입력하세요"
-            keyboardType="numeric"
-            returnKeyType="next"
-          />
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>순수무게 (kg)</Text>
-          <View style={styles.displayField}>
-            <Text style={styles.displayText}>{netWeight}</Text>
-          </View>
-        </View>
-
-        <View style={styles.inputGroup}>
-          <Text style={styles.label}>날짜</Text>
-          <View style={styles.displayField}>
-            <Text style={styles.displayText}>{currentDate}</Text>
-          </View>
-        </View>
-
-        <View style={styles.inputGroup}>
-          <View style={styles.printerHeader}>
-            <Text style={styles.label}>프린터 선택 *</Text>
-            <TouchableOpacity
-              style={styles.refreshButton}
-              onPress={loadPrinters}
-            >
-              <Text style={styles.refreshButtonText}>🔄 새로고침</Text>
-            </TouchableOpacity>
-          </View>
-
-          <View style={styles.pickerContainer}>
-            <Picker
-              selectedValue={selectedPrinter}
-              onValueChange={(itemValue) => {
-                if (itemValue && itemValue !== "") {
-                  console.log("🎯 프린터 선택 변경:", itemValue);
-                  setSelectedPrinter(itemValue);
-                }
-              }}
-              style={styles.picker}
-              itemStyle={styles.pickerItem}
-            >
-              {printers.length === 0 ? (
-                <Picker.Item label="프린터를 불러오는 중..." value="" />
-              ) : (
-                printers.map((printer, index) => (
-                  <Picker.Item
-                    key={index}
-                    label={`${printer.name} (${printer.status})`}
-                    value={printer.name}
-                  />
-                ))
-              )}
-            </Picker>
-          </View>
-        </View>
-
-        <TouchableOpacity
-          style={[styles.modeButton, showBatchMode && styles.modeButtonActive]}
-          onPress={() => setShowBatchMode(!showBatchMode)}
-        >
-          <Text
-            style={[
-              styles.modeButtonText,
-              showBatchMode && styles.modeButtonTextActive,
-            ]}
-          >
-            {showBatchMode ? "📋 일괄 모드" : "📄 단일 모드"}
-          </Text>
-        </TouchableOpacity>
 
         <TouchableOpacity
           style={[
@@ -344,6 +308,127 @@ const LabelPrintScreen = () => {
             </Text>
           )}
         </TouchableOpacity>
+      </View>
+
+      <View style={styles.form}>
+        {/* 총무게/팔렛무게 한 라인 */}
+        <View style={styles.row}>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>총무게 (kg) *</Text>
+            <TextInput
+              style={styles.input}
+              value={totalWeight}
+              onChangeText={setTotalWeight}
+              placeholder="총무게"
+              keyboardType="numeric"
+              returnKeyType="next"
+            />
+          </View>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>팔렛무게 (kg) *</Text>
+            <TextInput
+              style={styles.input}
+              value={palletWeight}
+              onChangeText={setPalletWeight}
+              placeholder="팔렛무게"
+              keyboardType="numeric"
+              returnKeyType="next"
+            />
+          </View>
+        </View>
+
+        {/* 기타무게/순수무게 한 라인 */}
+        <View style={styles.row}>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>기타 무게 (kg)</Text>
+            <TextInput
+              style={styles.input}
+              value={extraWeight}
+              onChangeText={async (text) => {
+                setExtraWeight(text);
+                // 기타 무게 저장
+                await AsyncStorage.setItem("extraWeight", text);
+              }}
+              placeholder="기타 무게"
+              keyboardType="numeric"
+              returnKeyType="next"
+            />
+          </View>
+          <View style={styles.halfInput}>
+            <Text style={styles.label}>순수무게 (kg)</Text>
+            <View style={styles.displayField}>
+              <Text style={styles.displayText}>{netWeight}</Text>
+            </View>
+          </View>
+        </View>
+
+        {/* 프린터 선택 */}
+        <View style={styles.inputGroup}>
+          <View style={styles.printerHeader}>
+            <Text style={styles.label}>프린터 선택 *</Text>
+            <TouchableOpacity
+              style={styles.refreshButton}
+              onPress={loadPrinters}
+            >
+              <Text style={styles.refreshButtonText}>🔄</Text>
+            </TouchableOpacity>
+          </View>
+
+          <View style={styles.pickerContainer}>
+            <Picker
+              selectedValue={selectedPrinter}
+              onValueChange={async (itemValue) => {
+                if (itemValue && itemValue !== "") {
+                  console.log("🎯 프린터 선택 변경:", itemValue);
+                  setSelectedPrinter(itemValue);
+                  // 선택한 프린터 저장
+                  await AsyncStorage.setItem("selectedPrinter", itemValue);
+                }
+              }}
+              style={styles.picker}
+              itemStyle={styles.pickerItem}
+              dropdownIconColor="#333"
+            >
+              {printers.length === 0 ? (
+                <Picker.Item 
+                  label="프린터를 불러오는 중..." 
+                  value=""
+                  color="#666"
+                />
+              ) : (
+                printers.map((printer, index) => (
+                  <Picker.Item
+                    key={index}
+                    label={`${printer.name} (${printer.status})`}
+                    value={printer.name}
+                    color="#333"
+                  />
+                ))
+              )}
+            </Picker>
+          </View>
+        </View>
+
+        {/* 모드 버튼과 초기화 버튼 */}
+        <View style={styles.row}>
+          <TouchableOpacity
+            style={[styles.modeButton, showBatchMode && styles.modeButtonActive]}
+            onPress={() => setShowBatchMode(!showBatchMode)}
+          >
+            <Text
+              style={[
+                styles.modeButtonText,
+                showBatchMode && styles.modeButtonTextActive,
+              ]}
+            >
+              {showBatchMode ? "📋 일괄" : "📄 단일"}
+            </Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.resetButton} onPress={resetForm}>
+            <Text style={styles.resetButtonText}>🔄 초기화</Text>
+          </TouchableOpacity>
+        </View>
 
         {showBatchMode && labels.length > 0 && (
           <TouchableOpacity
@@ -360,10 +445,6 @@ const LabelPrintScreen = () => {
             )}
           </TouchableOpacity>
         )}
-
-        <TouchableOpacity style={styles.resetButton} onPress={resetForm}>
-          <Text style={styles.resetButtonText}>🔄 초기화</Text>
-        </TouchableOpacity>
       </View>
 
       {/* 라벨 목록 (일괄 모드일 때만 표시) */}
@@ -379,7 +460,7 @@ const LabelPrintScreen = () => {
               </Text>
             </View>
           ) : (
-            <View style={styles.labelsList}>
+            <ScrollView style={styles.labelsList}>
               {labels.map((label) => (
                 <View key={label.id} style={styles.labelItem}>
                   <View style={styles.labelInfo}>
@@ -397,7 +478,7 @@ const LabelPrintScreen = () => {
                   </TouchableOpacity>
                 </View>
               ))}
-            </View>
+            </ScrollView>
           )}
         </View>
       )}
@@ -436,7 +517,7 @@ const LabelPrintScreen = () => {
           </View>
         </View>
       </Modal>
-    </ScrollView>
+    </SafeAreaView>
   );
 };
 
@@ -446,15 +527,17 @@ const styles = StyleSheet.create({
     backgroundColor: "#f5f5f5",
   },
   header: {
-    padding: 20,
+    paddingTop: 10,
+    paddingBottom: 15,
+    paddingHorizontal: 15,
     backgroundColor: "white",
-    marginBottom: 10,
+    marginBottom: 8,
   },
   title: {
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: "bold",
     textAlign: "center",
-    marginBottom: 20,
+    marginBottom: 12,
     color: "#333",
   },
   serverInfo: {
@@ -482,9 +565,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   status: {
-    padding: 10,
+    padding: 8,
     borderRadius: 8,
     alignItems: "center",
+    marginBottom: 10,
   },
   connected: {
     backgroundColor: "#d4edda",
@@ -511,15 +595,25 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   form: {
-    padding: 20,
+    padding: 15,
+    flex: 1,
+  },
+  row: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 12,
+  },
+  halfInput: {
+    flex: 1,
+    marginHorizontal: 5,
   },
   inputGroup: {
-    marginBottom: 20,
+    marginBottom: 12,
   },
   label: {
-    fontSize: 16,
+    fontSize: 13,
     fontWeight: "600",
-    marginBottom: 8,
+    marginBottom: 6,
     color: "#555",
   },
   input: {
@@ -527,15 +621,15 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
-    padding: 12,
-    fontSize: 16,
+    padding: 10,
+    fontSize: 14,
   },
   displayField: {
     backgroundColor: "#f8f9fa",
     borderWidth: 1,
     borderColor: "#e9ecef",
     borderRadius: 8,
-    padding: 12,
+    padding: 10,
   },
   displayText: {
     fontSize: 16,
@@ -569,10 +663,10 @@ const styles = StyleSheet.create({
   },
   printButton: {
     backgroundColor: "#4CAF50",
-    padding: 15,
+    padding: 12,
     borderRadius: 8,
     alignItems: "center",
-    marginBottom: 10,
+    marginTop: 8,
   },
   printButtonText: {
     color: "white",
@@ -581,9 +675,11 @@ const styles = StyleSheet.create({
   },
   resetButton: {
     backgroundColor: "#f44336",
-    padding: 15,
+    padding: 12,
     borderRadius: 8,
     alignItems: "center",
+    flex: 1,
+    marginLeft: 5,
   },
   resetButtonText: {
     color: "white",
@@ -647,10 +743,11 @@ const styles = StyleSheet.create({
   },
   modeButton: {
     backgroundColor: "#2196F3",
-    padding: 15,
+    padding: 12,
     borderRadius: 8,
     alignItems: "center",
-    marginBottom: 10,
+    flex: 1,
+    marginRight: 5,
   },
   modeButtonActive: {
     backgroundColor: "#4CAF50",
@@ -676,9 +773,10 @@ const styles = StyleSheet.create({
     fontWeight: "600",
   },
   labelsSection: {
-    padding: 20,
+    padding: 15,
     backgroundColor: "white",
-    marginTop: 10,
+    marginTop: 8,
+    flex: 1,
   },
   sectionTitle: {
     fontSize: 18,
@@ -687,7 +785,7 @@ const styles = StyleSheet.create({
     color: "#333",
   },
   labelsList: {
-    maxHeight: 300,
+    maxHeight: 150,
   },
   labelItem: {
     flexDirection: "row",
@@ -729,13 +827,17 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: "#ddd",
     borderRadius: 8,
-    marginTop: 8,
+    marginTop: 6,
+    overflow: "hidden",
   },
   picker: {
     height: 50,
+    backgroundColor: "white",
   },
   pickerItem: {
-    fontSize: 16,
+    fontSize: 15,
+    color: "#333",
+    fontWeight: "500",
   },
   printerHeader: {
     flexDirection: "row",

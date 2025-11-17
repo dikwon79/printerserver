@@ -1,6 +1,7 @@
 class LabelPrintService {
   constructor() {
     // 기본 서버 URL - IP 변경 기능으로 동적 설정 가능
+    // 저장된 IP가 있으면 사용, 없으면 기본값 사용
     this.baseURL = "http://10.0.0.208:8080";
   }
 
@@ -93,6 +94,7 @@ class LabelPrintService {
       const requestData = {
         total_weight: labelData.totalWeight,
         pallet_weight: labelData.palletWeight,
+        extra_weight: labelData.extraWeight || "0",
         printer: labelData.printer,
       };
 
