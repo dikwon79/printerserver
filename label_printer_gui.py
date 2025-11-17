@@ -101,97 +101,256 @@ class LabelPrinter:
         
         c = canvas.Canvas(pdf_path, pagesize=BULK_SHEET_PAGE_SIZE)
         page_width, page_height = BULK_SHEET_PAGE_SIZE
-        margin = 1.6 * cm
+        margin = 1.0 * cm
         
-        # Header
-        logo_y = page_height - margin
+        # Header table - 3 columns (left: 20%, center: 45%, right: 35%)
+        header_height = 1.6 * cm
+        header_top = page_height - 0.8 * cm
+        header_bottom = header_top - header_height
+        header_width = page_width - 2 * margin
+        left_col_width = header_width * 0.25
+        center_col_width = header_width * 0.40
+        right_col_width = header_width * 0.35
+        
+        # Draw header table borders
+        c.rect(margin, header_bottom, header_width, header_height)
+        c.line(margin + left_col_width, header_bottom, margin + left_col_width, header_top)
+        c.line(margin + left_col_width + center_col_width, header_bottom, margin + left_col_width + center_col_width, header_top)
+        
+        # Left cell - innofoods INC
+        header_center_y = header_bottom + header_height / 2
         c.setFont("Helvetica-Bold", 22)
         c.setFillColorRGB(0.0, 0.4, 0.6)
-        c.drawString(margin, logo_y, "innofoods")
+        logo_text = "innofoods"
+        logo_x = margin + 0.3 * cm  # 왼쪽으로 이동
+        c.drawString(logo_x, header_center_y - 0.3 * cm, logo_text)
+        c.setFont("Helvetica-Bold", 7)  # INC를 더 작게
+        inc_text = "INC"
+        logo_width = c.stringWidth(logo_text, "Helvetica-Bold", 22)
+        inc_x = logo_x + logo_width + 0.2 * cm
+        c.drawString(inc_x, header_center_y - 0.5 * cm, inc_text)  # 아래로 이동
+       
         
+        # Center cell - Daily Bulk Production Sheet
         c.setFillColorRGB(0, 0, 0)
-        c.setFont("Helvetica-Bold", 18)
-        c.drawString(margin + 4.5 * cm, logo_y, "Daily Bulk Production Sheet")
+        c.setFont("Helvetica-Bold", 14)  # 폰트 크기 줄임
+        title_text = "Daily Bulk Production Sheet"
+        title_width = c.stringWidth(title_text, "Helvetica-Bold", 14)
+        center_start_x = margin + left_col_width
+        title_x = center_start_x + (center_col_width - title_width) / 2
+        c.drawString(title_x, header_center_y - 0.2 * cm, title_text)
         
-        # Document info box
-        doc_box_width = 5.4 * cm
-        doc_box_height = 2.0 * cm
-        doc_box_x = page_width - margin - doc_box_width + 1.0 * cm
-        doc_box_y = logo_y - 0.7 * cm
-        c.rect(doc_box_x, doc_box_y, doc_box_width, doc_box_height)
+        # Right cell - Document info
         c.setFont("Helvetica", 9)
+        doc_info = [
+            ("Document No.:", data.get("document_no", "INNO-PROU-PUT-LUS")),
+            ("Issue No.:", data.get("issue_no", "014")),
+            ("Effective Date:", data.get("effective_date", "Sep 14, 2023")),
+            ("Issued By:", data.get("issued_by", "Jason Lee")),
+            ("Approved By:", data.get("approved_by", "Jeff Chen")),
+            ("Review Date:", data.get("review_date", "Sep 14, 2023")),
+        ]
+        right_start_x = margin + left_col_width + center_col_width
+        doc_start_x = right_start_x + 0.2 * cm
+        line_spacing = 0.25 * cm  # 줄 간격 증가
+        doc_start_y = header_top - 0.3 * cm
+        for idx, (label, value) in enumerate(doc_info):
+            y_pos = doc_start_y - idx * line_spacing
+            c.drawString(doc_start_x, y_pos, label)
+            c.drawString(doc_start_x + 2.2 * cm, y_pos, value)
         
-      
-     
+        # Form table - each row is a separate cell with borders
+        form_top = header_bottom - 0.3 * cm
+        form_width = page_width - 2 * margin
+        row_height = 1.0 * cm
+        left_col_width = form_width * 0.5
+        right_col_width = form_width * 0.5
         
-        # Helper to draw fields
-        def draw_field(label, x, y, width, value_text=""):
-            c.drawString(x, y, label)
-            line_start = x + c.stringWidth(label, "Helvetica", 11) + 6
-            line_end = line_start + width
-            line_y = y - 2
-            c.line(line_start, line_y, line_end, line_y)
-            if value_text:
-                c.drawString(line_start + 2, line_y + 7, value_text)
-        
-        form_top = logo_y - 1.6 * cm
-        line_length = 7.2 * cm
-        right_field_width = 7.4 * cm
         c.setFont("Helvetica", 11)
         
-        draw_field("DATE:", margin, form_top, line_length, data.get("date", ""))
-        draw_field("Supervisor Name:", margin, form_top - 1.0 * cm, line_length-2.0*cm, data.get("supervisor_name", ""))
-        draw_field("Product Name:", margin, form_top - 2.0 * cm, line_length-1.3*cm, data.get("product_name", ""))
+        # Helper function to draw vertically centered text in cell
+        def draw_centered_text(x, y_bottom, height, text, font_size=11):
+            center_y = y_bottom + height / 2
+            c.setFont("Helvetica", font_size)
+            c.drawString(x, center_y - 0.2 * cm, text)
         
-        # Parchment paper section
-        parchment_y = form_top - 3.0 * cm
-        c.drawString(margin, parchment_y, "Parchment Paper: Reuse")
-        checkbox_size = 0.5 * cm
-        checkbox_x = margin + c.stringWidth("Parchment Paper: Reuse", "Helvetica", 11) + 8
-        c.rect(checkbox_x, parchment_y - 8, checkbox_size, checkbox_size)
+        # Row 1: DATE (left) and SHIFT (right)
+        row1_y = form_top
+        row1_bottom = row1_y - row_height
+        # Left cell - DATE
+        c.rect(margin, row1_bottom, left_col_width, row_height)
+        draw_centered_text(margin + 0.15 * cm, row1_bottom, row_height, "DATE:")
+        date_value = data.get("date", "")
+        if date_value:
+            draw_centered_text(margin + 1.8 * cm, row1_bottom, row_height, date_value)
+        # Right cell - SHIFT
+        c.rect(margin + left_col_width, row1_bottom, right_col_width, row_height)
+        draw_centered_text(margin + left_col_width + 0.15 * cm, row1_bottom, row_height, "SHIFT (circle one):")
+        c.setFont("Helvetica", 9)
+        shift_center_y = row1_bottom + row_height / 2
+        c.drawString(margin + left_col_width + 3.8 * cm, shift_center_y - 0.2 * cm, "AM / PM / Graveyard")
+        shift_value = data.get("shift", "").upper()
+        if shift_value:
+            # AM 위치를 기준으로 선택값에 따라 타원형 원 그리기
+            base_x = margin + left_col_width + 3.8 * cm  # 기준 위치
+            if shift_value == "AM":
+                ellipse_center_x = base_x + 0.2 * cm  # AM은 0.2cm 오른쪽
+            elif shift_value == "PM":
+                ellipse_center_x = base_x + 0.9 * cm  # PM은 0.7cm 오른쪽 (0.3cm 추가 이동)
+            elif shift_value == "GRAVEYARD" or shift_value.startswith("G"):
+                ellipse_center_x = base_x + 1.8 * cm  # GRAVEYARD는 4cm 오른쪽
+            else:
+                ellipse_center_x = base_x + 0.2 * cm
+            
+            # 타원형 원 그리기 (오른쪽으로 늘린 형태)
+            ellipse_width = 0.8 * cm  # 가로 너비
+            ellipse_height = 0.3 * cm  # 세로 높이
+            ellipse_x1 = ellipse_center_x - ellipse_width / 2
+            ellipse_y1 = shift_center_y - ellipse_height / 2
+            ellipse_x2 = ellipse_center_x + ellipse_width / 2
+            ellipse_y2 = shift_center_y + ellipse_height / 2
+            c.ellipse(ellipse_x1, ellipse_y1, ellipse_x2, ellipse_y2)
+        
+        # Row 2: Supervisor Name (left) and Employee Name (right)
+        row2_y = row1_y - row_height
+        row2_bottom = row2_y - row_height
+        c.setFont("Helvetica", 11)
+        # Left cell
+        c.rect(margin, row2_bottom, left_col_width, row_height)
+        supervisor_label = "Supervisor Name:"
+        supervisor_label_x = margin + 0.15 * cm
+        draw_centered_text(supervisor_label_x, row2_bottom, row_height, supervisor_label)
+        supervisor_value = data.get("supervisor_name", "")
+        if supervisor_value:
+            # 타이틀 끝에서 여백 추가
+            supervisor_label_width = c.stringWidth(supervisor_label, "Helvetica", 11)
+            supervisor_value_x = supervisor_label_x + supervisor_label_width + 0.3 * cm
+            draw_centered_text(supervisor_value_x, row2_bottom, row_height, supervisor_value)
+        # Right cell
+        c.rect(margin + left_col_width, row2_bottom, right_col_width, row_height)
+        employee_label = "Employee Name:"
+        employee_label_x = margin + left_col_width + 0.15 * cm
+        draw_centered_text(employee_label_x, row2_bottom, row_height, employee_label)
+        employee_value = data.get("employee_name", "")
+        if employee_value:
+            # 타이틀 끝에서 여백 추가
+            employee_label_width = c.stringWidth(employee_label, "Helvetica", 11)
+            employee_value_x = employee_label_x + employee_label_width + 0.3 * cm
+            draw_centered_text(employee_value_x, row2_bottom, row_height, employee_value)
+        
+        # Row 3: Product Name (left) and Bulk Lot Code (right)
+        row3_y = row2_y - row_height
+        row3_bottom = row3_y - row_height
+        # Left cell
+        c.rect(margin, row3_bottom, left_col_width, row_height)
+        draw_centered_text(margin + 0.15 * cm, row3_bottom, row_height, "Product Name:")
+        product_value = data.get("product_name", "")
+        if product_value:
+            draw_centered_text(margin + 2.8 * cm, row3_bottom, row_height, product_value)
+        # Right cell
+        c.rect(margin + left_col_width, row3_bottom, right_col_width, row_height)
+        draw_centered_text(margin + left_col_width + 0.15 * cm, row3_bottom, row_height, "Bulk Lot Code:")
+        bulk_lot_value = data.get("bulk_lot_code", "")
+        if bulk_lot_value:
+            draw_centered_text(margin + left_col_width + 2.8 * cm, row3_bottom, row_height, bulk_lot_value)
+        
+        # Row 4: Parchment Paper and Quantity (full width)
+        row4_y = row3_y - row_height
+        row4_bottom = row4_y - row_height
+        # Full width cell
+        c.rect(margin, row4_bottom, form_width, row_height)
+        row4_center_y = row4_bottom + row_height / 2 + 0.27 * cm  # 콘텐츠를 위로 이동
+        
+        # Parchment Paper: REUSE
+        c.drawString(margin + 0.15 * cm, row4_center_y - 0.2 * cm, "Parchment Paper: Reuse")
+        reuse_text_width = c.stringWidth("Parchment Paper: Reuse", "Helvetica", 11)
+        
+        # 두 개 겹친 네모박스 (중심 같고 크기만 다름)
+        checkbox_center_x = margin + reuse_text_width + 0.2 * cm + 0.2 * cm  # REUSE 텍스트 끝 + 여백 + 박스 중심
+        checkbox_center_y = row4_center_y
+        
+        # 첫 번째 네모박스 (큰 것)
+        checkbox_size1 = 0.4 * cm
+        checkbox1_x = checkbox_center_x - checkbox_size1 / 2
+        checkbox1_y = checkbox_center_y - checkbox_size1 / 2
+        c.rect(checkbox1_x, checkbox1_y, checkbox_size1, checkbox_size1)
+        
+        # 두 번째 네모박스 (작은 것, 같은 중심)
+        checkbox_size2 = 0.25 * cm
+        checkbox2_x = checkbox_center_x - checkbox_size2 / 2
+        checkbox2_y = checkbox_center_y - checkbox_size2 / 2
+        c.rect(checkbox2_x, checkbox2_y, checkbox_size2, checkbox_size2)
+        
         if data.get("parchment_reuse"):
-            c.line(checkbox_x, parchment_y - 8, checkbox_x + checkbox_size, parchment_y - 8 + checkbox_size)
-            c.line(checkbox_x, parchment_y - 8 + checkbox_size, checkbox_x + checkbox_size, parchment_y - 8)
-        c.drawString(checkbox_x + checkbox_size + 6, parchment_y, "or Lot code:")
-        lot_code_line_start = checkbox_x + checkbox_size + 6 + c.stringWidth("or Lot code:", "Helvetica", 11) + 6
-        c.line(lot_code_line_start, parchment_y - 2, lot_code_line_start + 6.0 * cm, parchment_y - 2)
-        if data.get("parchment_lot_code"):
-            c.drawString(lot_code_line_start + 4, parchment_y - 12, data["parchment_lot_code"])
+            # 체크 표시 (큰 박스에만)
+            c.line(checkbox1_x, checkbox1_y, checkbox1_x + checkbox_size1, checkbox1_y + checkbox_size1)
+            c.line(checkbox1_x, checkbox1_y + checkbox_size1, checkbox1_x + checkbox_size1, checkbox1_y)
         
-        # Right column
-        right_x = margin + line_length + 1.5 * cm
-        draw_field("SHIFT (circle one):", right_x, form_top, right_field_width, data.get("shift", ""))
-        c.setFont("Helvetica", 10)
-        c.drawString(right_x + 4.0 * cm, form_top, "AM / PM / Graveyard")
-        c.setFont("Helvetica", 11)
-        draw_field("Employee Name:", right_x, form_top - 1.0 * cm, right_field_width, data.get("employee_name", ""))
-        draw_field("Bulk Lot Code:", right_x, form_top - 2.0 * cm, right_field_width, data.get("bulk_lot_code", ""))
-        draw_field("Quantity:", right_x, form_top - 3.0 * cm, right_field_width, data.get("quantity", ""))
+        # or Lot code: 밑줄 있는 입력 폼
+        lot_code_label = "or Lot code:"
+        lot_code_label_x = checkbox_center_x + checkbox_size1 / 2 + 0.3 * cm
+        c.drawString(lot_code_label_x, row4_center_y - 0.2 * cm, lot_code_label)
+        lot_code_label_width = c.stringWidth(lot_code_label, "Helvetica", 11)
+        lot_code_line_x = lot_code_label_x + lot_code_label_width + 0.2 * cm
+        lot_code_line_width = 4.0 * cm
+        lot_code_line_y = row4_center_y - 0.3 * cm
+        c.line(lot_code_line_x, lot_code_line_y, lot_code_line_x + lot_code_line_width, lot_code_line_y)
+        lot_code_value = data.get("parchment_lot_code", "")
+        if lot_code_value:
+            c.drawString(lot_code_line_x + 0.1 * cm, lot_code_line_y + 0.1 * cm, lot_code_value)
         
-        # Quality check line
-        qc_y = parchment_y - 1.1 * cm
-        c.setFont("Helvetica", 11)
-        c.drawString(margin, qc_y, "Quality Checked (e.g. color, texture, crumb, taste) - Supervisor Initial:")
-        c.line(margin, qc_y - 4, page_width - margin, qc_y - 4)
-        if data.get("quality_checked"):
-            qc_initial_x = page_width - margin - c.stringWidth(data["quality_checked"], "Helvetica", 11)
-            c.drawString(qc_initial_x, qc_y - 12, data["quality_checked"])
+        # 체크되면 parchment 라인 위에 텍스트 표시 (3cm 오른쪽으로 이동)
+        if data.get("no_choco_coating"):
+            choco_text = "No need for choco coating"
+            choco_text_y = lot_code_line_y - 0.4 * cm  # 라인 위에 표기
+            choco_text_x = lot_code_line_x + 3.0 * cm  # 3cm 오른쪽으로 이동
+            c.drawString(choco_text_x, choco_text_y, choco_text)
+        
+        # Quantity: 오른쪽에 밑줄 있는 입력줄
+        quantity_label = "Quantity:"
+        quantity_label_width = c.stringWidth(quantity_label, "Helvetica", 11)
+        quantity_label_x = page_width - margin - 5.0 * cm - quantity_label_width
+        c.drawString(quantity_label_x, row4_center_y - 0.2 * cm, quantity_label)
+        quantity_line_x = quantity_label_x + quantity_label_width + 0.2 * cm
+        quantity_line_width = 4.0 * cm
+        quantity_line_y = row4_center_y - 0.3 * cm
+        c.line(quantity_line_x, quantity_line_y, quantity_line_x + quantity_line_width, quantity_line_y)
+        quantity_value = data.get("quantity", "")
+        if quantity_value:
+            c.drawString(quantity_line_x + 0.1 * cm, quantity_line_y + 0.1 * cm, quantity_value)
+        
+        # Row 5: Quality Checked (full width)
+        qc_y = row4_y - row_height
+        qc_bottom = qc_y - row_height
+        c.rect(margin, qc_bottom, form_width, row_height)
+        qc_center_y = qc_bottom + row_height / 2
+        c.drawString(margin + 0.15 * cm, qc_center_y - 0.2 * cm, "Quality Checked (e.g. color, texture, crumb, taste) - Supervisor Initial:")
+        quality_value = data.get("quality_checked", "")
+        if quality_value:
+            qc_initial_x = page_width - margin - c.stringWidth(quality_value, "Helvetica", 11) - 0.15 * cm
+            c.drawString(qc_initial_x, qc_center_y - 0.2 * cm, quality_value)
+        
+        # Thick line separator after Quality Checked
+        c.setLineWidth(2)
+        separator_y = qc_bottom - 0.2 * cm
+        c.line(margin, separator_y, page_width - margin, separator_y)
+        c.setLineWidth(1)
         
         # Main table
-        table_top = qc_y - 0.9 * cm
+        table_top = separator_y - 0.3 * cm
         table_left = margin
         table_width = page_width - 2 * margin
-        header_height = 1.0 * cm
-        body_row_height = 0.9 * cm
+        table_header_height = 1.1 * cm
+        body_row_height = 1.0 * cm
         body_rows = 15
-        table_height = header_height + body_rows * body_row_height
+        table_height = table_header_height + body_rows * body_row_height
         table_bottom = table_top - table_height
         
         c.rect(table_left, table_bottom, table_width, table_height)
         
         column_specs = [
-            ("Bulk Plastic Bag Lot Codes", 0.28),
-            ("Bulk Bag QTY", 0.14),
+            ("Bulk Plastic Bag \nLot Codes", 0.28),
+            ("Bulk Bag \nQTY", 0.14),
             ("Pallet #", 0.13),
             ("Total KG", 0.13),
             ("Notes", 0.24),
@@ -203,25 +362,39 @@ class LabelPrinter:
             x_positions.append(x_positions[-1] + ratio * table_width)
         for x in x_positions[1:-1]:
             c.line(x, table_bottom, x, table_top)
-        c.line(table_left, table_top - header_height, table_left + table_width, table_top - header_height)
+        c.line(table_left, table_top - table_header_height, table_left + table_width, table_top - table_header_height)
         
+        # Header row - vertically centered
         c.setFont("Helvetica-Bold", 11)
-        header_y = table_top - 0.5 * cm
+        header_center_y = table_top - table_header_height / 2
         for idx, (title, _) in enumerate(column_specs):
             text_x = x_positions[idx] + 0.3 * cm
-            c.drawString(text_x, header_y, title)
+            # 줄바꿈 처리
+            if '\n' in title:
+                lines = title.split('\n')
+                line_height = 0.4 * cm
+                total_height = len(lines) * line_height
+                start_y = header_center_y + total_height / 2 - line_height / 2
+                for line_idx, line in enumerate(lines):
+                    y_pos = start_y - line_idx * line_height
+                    c.drawString(text_x, y_pos - 0.1 * cm, line)
+            else:
+                c.drawString(text_x, header_center_y - 0.2 * cm, title)
         
+        # Body rows - draw horizontal lines
         c.setFont("Helvetica", 10)
         for row in range(body_rows):
-            y = table_top - header_height - row * body_row_height
+            y = table_top - table_header_height - row * body_row_height
             c.line(table_left, y, table_left + table_width, y)
         
+        # Body data - vertically centered
         table_data = data.get("production_table", [])
         wrap_columns = {"bulk_bag_qty", "notes"}
         for row_idx in range(min(body_rows, len(table_data))):
             row_data = table_data[row_idx] or {}
-            cell_top = table_top - header_height - row_idx * body_row_height
-            base_y = cell_top - body_row_height + 0.3 * cm
+            cell_top = table_top - table_header_height - row_idx * body_row_height
+            cell_bottom = cell_top - body_row_height
+            cell_center_y = cell_bottom + body_row_height / 2
             
             for col_idx, key in enumerate(["bulk_plastic_bag_lot_codes", "bulk_bag_qty", "pallet_num", "total_kg", "notes", "initial"]):
                 value = row_data.get(key, "")
@@ -233,11 +406,11 @@ class LabelPrinter:
                 if key in wrap_columns:
                     text_obj = c.beginText()
                     text_obj.setFont("Helvetica", 10)
-                    text_obj.setLeading(10)
-                    text_obj.setTextOrigin(text_x, base_y + 10)
+                    text_obj.setLeading(11)
                     
                     max_width = column_specs[col_idx][1] * table_width - 0.4 * cm
                     words = str(value).split()
+                    lines = []
                     current_line = ""
                     for word in words:
                         candidate = f"{current_line} {word}".strip()
@@ -245,49 +418,114 @@ class LabelPrinter:
                             current_line = candidate
                         else:
                             if current_line:
-                                text_obj.textLine(current_line)
+                                lines.append(current_line)
                             current_line = word
                     if current_line:
-                        text_obj.textLine(current_line)
+                        lines.append(current_line)
+                    
+                    # Center wrapped text vertically
+                    total_text_height = len(lines) * 11
+                    text_start_y = cell_center_y + total_text_height / 2 - 5
+                    text_obj.setTextOrigin(text_x, text_start_y)
+                    for line in lines:
+                        text_obj.textLine(line)
                     c.drawText(text_obj)
                 else:
-                    c.drawString(text_x, base_y + 5, str(value))
+                    # Center single line text vertically
+                    c.drawString(text_x, cell_center_y - 0.2 * cm, str(value))
         
-        # Production notes
-        notes_top = table_bottom - 1.2 * cm
-        notes_height = 3.0 * cm
-        c.setFont("Helvetica", 11)
-        c.drawString(margin, notes_top, "Production Notes:")
-        c.rect(margin, notes_top - notes_height, table_width, notes_height)
+        # Production Notes와 Supervisor Name & Signature 행 (테이블 바로 아래)
+        notes_signature_row_height = body_row_height  # 테이블 행과 같은 높이
+        notes_signature_top = table_bottom
+        notes_signature_bottom = notes_signature_top - notes_signature_row_height
+        notes_signature_width = table_width / 2  # 반반으로 나누기
+        
+        # 테두리 그리기
+        c.rect(table_left, notes_signature_bottom, table_width, notes_signature_row_height)
+        # 중간 구분선
+        c.line(table_left + notes_signature_width, notes_signature_bottom, 
+               table_left + notes_signature_width, notes_signature_top)
+        
+        # Production Notes (왼쪽 반)
+        notes_label_x = table_left + 0.2 * cm
+        notes_label_y = notes_signature_bottom + notes_signature_row_height / 2
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(notes_label_x, notes_label_y - 0.2 * cm, "Production Notes:")
+        
         notes_text = data.get("production_notes", "")
         if notes_text:
             c.setFont("Helvetica", 10)
             text_object = c.beginText()
-            text_object.setTextOrigin(margin + 0.3 * cm, notes_top - 0.4 * cm)
-            text_object.setLeading(14)
-            for line in notes_text.splitlines():
+            text_object.setTextOrigin(notes_label_x, notes_label_y - 0.5 * cm)
+            text_object.setLeading(11)
+            max_width = notes_signature_width - 0.4 * cm
+            words = str(notes_text).split()
+            lines = []
+            current_line = ""
+            for word in words:
+                candidate = f"{current_line} {word}".strip()
+                if c.stringWidth(candidate, "Helvetica", 10) <= max_width:
+                    current_line = candidate
+                else:
+                    if current_line:
+                        lines.append(current_line)
+                    current_line = word
+            if current_line:
+                lines.append(current_line)
+            for line in lines[:3]:  # 최대 3줄
                 text_object.textLine(line)
             c.drawText(text_object)
         
-        # Sign-off section
-        sign_y = notes_top - notes_height - 1.0 * cm
-        c.setFont("Helvetica", 11)
-        c.drawString(margin, sign_y, "Verified by QA:")
-        c.line(margin + 4.0 * cm, sign_y - 2, margin + 4.0 * cm + 6.6 * cm, sign_y - 2)
-        if data.get("verified_by_qa"):
-            c.drawString(margin + 4.0 * cm + 0.2 * cm, sign_y - 12, data["verified_by_qa"])
+        # Supervisor Name & Signature (오른쪽 반)
+        supervisor_label_x = table_left + notes_signature_width + 0.2 * cm
+        supervisor_label_y = notes_signature_bottom + notes_signature_row_height / 2
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(supervisor_label_x, supervisor_label_y - 0.2 * cm, "Supervisor Name & Signature:")
         
-        supervisor_x = margin + 11.5 * cm
-        c.drawString(supervisor_x, sign_y, "Supervisor Name & Signature:")
-        c.line(supervisor_x + 6.0 * cm, sign_y - 2, supervisor_x + 6.0 * cm + 7.6 * cm, sign_y - 2)
-        if data.get("supervisor_signature"):
-            c.drawString(supervisor_x + 6.0 * cm + 0.2 * cm, sign_y - 12, data["supervisor_signature"])
+        supervisor_text = data.get("supervisor_signature", "")
+        if supervisor_text:
+            c.setFont("Helvetica", 10)
+            c.drawString(supervisor_label_x, supervisor_label_y - 0.5 * cm, supervisor_text)
         
-        date_x = margin + table_width - 5.5 * cm
-        c.drawString(date_x, sign_y, "Date:")
-        c.line(date_x + 1.3 * cm, sign_y - 2, date_x + 1.3 * cm + 4.2 * cm, sign_y - 2)
-        if data.get("sign_date"):
-            c.drawString(date_x + 1.3 * cm + 0.2 * cm, sign_y - 12, data["sign_date"])
+        # Verification by QA와 Date 행 (Production Notes/Supervisor 아래)
+        verification_row_height = body_row_height  # 테이블 행과 같은 높이
+        verification_top = notes_signature_bottom - 0.1 * cm
+        verification_bottom = verification_top - verification_row_height
+        verification_width = table_width / 2  # 반반으로 나누기
+        
+        # Verification by QA (왼쪽 반)
+        verification_center_y = verification_bottom + verification_row_height / 2 - 0.2 * cm
+        verification_label_x = table_left + 0.2 * cm
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(verification_label_x, verification_center_y - 0.2 * cm, "Verification by QA:")
+        
+        # 밑줄 (텍스트와 같은 높이)
+        line_y = verification_center_y - 0.3 * cm
+        line_start = verification_label_x + 3.8 * cm
+        line_end = table_left + verification_width - 0.3 * cm
+        c.line(line_start, line_y, line_end, line_y)
+        
+        verification_text = data.get("verified_by_qa", "")
+        if verification_text:
+            c.setFont("Helvetica", 10)
+            c.drawString(line_start + 0.2 * cm, line_y - 0.1 * cm, verification_text)
+        
+        # Date (오른쪽 반)
+        date_center_y = verification_bottom + verification_row_height / 2 -0.2 * cm
+        date_label_x = table_left + verification_width + 0.2 * cm
+        c.setFont("Helvetica-Bold", 11)
+        c.drawString(date_label_x, date_center_y - 0.2 * cm, "Date:")
+        
+        # 밑줄 (Date 텍스트 아래)
+        date_line_y = date_center_y - 0.3 * cm
+        date_line_start = date_label_x + 1.0 * cm
+        date_line_end = table_left + table_width - 0.3 * cm
+        c.line(date_line_start, date_line_y, date_line_end, date_line_y)
+        
+        date_text = data.get("sign_date", "")
+        if date_text:
+            c.setFont("Helvetica", 10)
+            c.drawString(date_line_start + 0.2 * cm, date_line_y + 0.2 * cm, date_text)
         
         c.setFont("Helvetica", 9)
         c.drawRightString(page_width - margin, margin - 0.4 * cm, "Page 1")
@@ -698,6 +936,11 @@ class LabelPrinterGUI:
         self.root.title("라벨 인쇄 프로그램")
         self.root.geometry("1400x900")
         self.root.resizable(True, True)
+        # 윈도우 최대화
+        if os.name == 'nt':  # Windows
+            self.root.state('zoomed')
+        else:  # Linux/macOS
+            self.root.attributes('-zoomed', True)
         
         # 프린터 인스턴스
         self.printer = LabelPrinter()
@@ -1237,18 +1480,25 @@ class LabelPrinterGUI:
         button_frame = ttk.Frame(parent)
         button_frame.pack(pady=5, fill=tk.X)
         
-        def save_inline_form():
-            """양식 데이터 저장"""
+        def auto_save_form():
+            """양식 데이터 자동 저장 (production_table 포함)"""
+            date_value = self.form_data_inline['date'].get()
+            shift_value = self.form_data_inline['shift'].get()
+            
+            if not date_value or not shift_value:
+                return  # date나 shift가 없으면 저장하지 않음
+            
             record = {
                 'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-                'date': self.form_data_inline['date'].get(),
-                'shift': self.form_data_inline['shift'].get(),
+                'date': date_value,
+                'shift': shift_value,
                 'supervisor_name': self.form_data_inline['supervisor_name'].get(),
                 'employee_name': self.form_data_inline['employee_name'].get(),
                 'product_name': self.form_data_inline['product_name'].get(),
                 'bulk_lot_code': self.form_data_inline['bulk_lot_code'].get(),
                 'parchment_reuse': self.form_data_inline['parchment_reuse'].get(),
                 'parchment_lot_code': self.form_data_inline['parchment_lot_code'].get(),
+                'no_choco_coating': self.form_data_inline['no_choco_coating'].get(),
                 'quantity': self.form_data_inline['quantity'].get(),
                 'quality_checked': self.form_data_inline['quality_checked'].get(),
                 'production_table': [
@@ -1262,14 +1512,33 @@ class LabelPrinterGUI:
                     }
                     for row in self.table_data_inline
                 ],
-                'production_notes': self.form_data_inline['production_notes'].get('1.0', tk.END).strip(),
-                'verified_by_qa': self.form_data_inline['verified_by_qa'].get(),
-                'supervisor_signature': self.form_data_inline['supervisor_signature'].get()
+                'production_notes': "",
+                'verified_by_qa': "",
+                'supervisor_signature': ""
             }
             
-            self.production_records.append(record)
+            # date + shift로 중복 체크
+            existing_idx = None
+            for idx, existing_record in enumerate(self.production_records):
+                if existing_record.get('date') == date_value and existing_record.get('shift') == shift_value:
+                    existing_idx = idx
+                    break
+            
+            if existing_idx is not None:
+                # 중복이면 덮어쓰기
+                self.production_records[existing_idx] = record
+            else:
+                # 새로 추가
+                self.production_records.append(record)
+            
             self.save_production_records()
-            messagebox.showinfo("성공", "양식이 저장되었습니다.")
+        
+        def save_inline_form():
+            """양식 데이터 저장 (수동 저장)"""
+            auto_save_form()
+            date_value = self.form_data_inline['date'].get()
+            shift_value = self.form_data_inline['shift'].get()
+            messagebox.showinfo("성공", f"양식이 저장되었습니다. (Date: {date_value}, Shift: {shift_value})")
         
         def fill_from_label_inline():
             """현재 라벨 데이터를 양식의 TOTAL KG에 자동 입력 (순수무게)"""
@@ -1287,10 +1556,20 @@ class LabelPrinterGUI:
         ttk.Label(button_frame, text="인쇄 매수:").pack(side=tk.LEFT, padx=5)
         ttk.Entry(button_frame, textvariable=self.bulk_copies_var, width=6).pack(side=tk.LEFT, padx=(0, 10))
         
+        def clear_production_table():
+            """Production Data Table의 모든 데이터 초기화"""
+            if messagebox.askyesno("확인", "Production Data Table의 모든 데이터를 초기화하시겠습니까?"):
+                for row_data in self.table_data_inline:
+                    for key, var in row_data.items():
+                        var.set("")
+                messagebox.showinfo("완료", "Production Data Table이 초기화되었습니다.")
+        
         ttk.Button(button_frame, text="라벨 데이터 가져오기", command=fill_from_label_inline).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="미리보기", command=self.preview_bulk_sheet_inline).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="인쇄", command=self.print_bulk_sheet_inline).pack(side=tk.LEFT, padx=5)
         ttk.Button(button_frame, text="저장", command=save_inline_form).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="저장된 양식 불러오기", command=self.load_saved_bulk_sheet).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="테이블 초기화", command=clear_production_table).pack(side=tk.LEFT, padx=5)
         
         # 스크롤 가능한 프레임
         canvas = tk.Canvas(parent, highlightthickness=0)
@@ -1327,6 +1606,13 @@ class LabelPrinterGUI:
         date_entry = ttk.Entry(scrollable_frame, textvariable=date_var, width=20)
         date_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
         self.form_data_inline['date'] = date_var
+        # 자동 저장 (공유 타이머 사용)
+        def trigger_auto_save(*args):
+            if hasattr(self, '_auto_save_timer'):
+                self.root.after_cancel(self._auto_save_timer)
+            self._auto_save_timer = self.root.after(2000, auto_save_form)
+        
+        date_var.trace_add('write', trigger_auto_save)
         
         # SHIFT
         ttk.Label(scrollable_frame, text="SHIFT:").grid(row=2, column=0, sticky=tk.W, padx=5, pady=2)
@@ -1337,6 +1623,8 @@ class LabelPrinterGUI:
         ttk.Radiobutton(shift_frame, text="PM", variable=shift_var, value="PM").pack(side=tk.LEFT, padx=2)
         ttk.Radiobutton(shift_frame, text="Graveyard", variable=shift_var, value="Graveyard").pack(side=tk.LEFT, padx=2)
         self.form_data_inline['shift'] = shift_var
+        # 자동 저장
+        shift_var.trace_add('write', trigger_auto_save)
         
         # Supervisor Name
         ttk.Label(scrollable_frame, text="Supervisor Name:").grid(row=3, column=0, sticky=tk.W, padx=5, pady=2)
@@ -1379,72 +1667,104 @@ class LabelPrinterGUI:
         self.form_data_inline['parchment_reuse'] = parchment_reuse_var
         self.form_data_inline['parchment_lot_code'] = parchment_lot_var
         
+        # No need for choco coating 체크박스
+        no_choco_var = tk.BooleanVar()
+        ttk.Checkbutton(scrollable_frame, text="No need for choco coating", variable=no_choco_var).grid(row=8, column=0, columnspan=2, sticky=tk.W, padx=5, pady=2)
+        self.form_data_inline['no_choco_coating'] = no_choco_var
+        
         # Quantity
-        ttk.Label(scrollable_frame, text="Quantity:").grid(row=8, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(scrollable_frame, text="Quantity:").grid(row=9, column=0, sticky=tk.W, padx=5, pady=2)
         quantity_var = tk.StringVar()
         quantity_entry = ttk.Entry(scrollable_frame, textvariable=quantity_var, width=20)
-        quantity_entry.grid(row=8, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        quantity_entry.grid(row=9, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
         self.form_data_inline['quantity'] = quantity_var
         
         # Quality Checked
-        ttk.Label(scrollable_frame, text="Quality Checked (Initial):").grid(row=9, column=0, sticky=tk.W, padx=5, pady=2)
+        ttk.Label(scrollable_frame, text="Quality Checked (Initial):").grid(row=10, column=0, sticky=tk.W, padx=5, pady=2)
         quality_var = tk.StringVar()
         quality_entry = ttk.Entry(scrollable_frame, textvariable=quality_var, width=20)
-        quality_entry.grid(row=9, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        quality_entry.grid(row=10, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
         self.form_data_inline['quality_checked'] = quality_var
         
         # Production Data Table
         table_label = ttk.Label(scrollable_frame, text="Production Data Table", font=("Arial", 11, "bold"))
-        table_label.grid(row=10, column=0, columnspan=2, pady=(10, 5))
+        table_label.grid(row=11, column=0, columnspan=2, pady=(10, 5))
         
-        # 테이블 헤더 (간소화)
-        headers = ["Lot Codes", "Bag QTY", "Pallet", "Total KG", "Notes", "Init"]
+        # 테이블 헤더 (PDF와 동일하게)
+        headers = ["Bulk Plastic Bag\nLot Codes", "Bulk Bag\nQTY", "Pallet #", "Total KG", "Notes", "Initial"]
+        # PDF의 컬럼 비율 (column_specs와 동일) - 정수로 변환 (100배)
+        column_weights = [28, 14, 13, 13, 24, 8]
+        header_frame = ttk.Frame(scrollable_frame)
+        header_frame.grid(row=12, column=0, columnspan=6, sticky=(tk.W, tk.E), padx=5, pady=2)
+        # 헤더 프레임의 컬럼 가중치 설정 (PDF 비율과 동일하게)
+        for col in range(6):
+            header_frame.columnconfigure(col, weight=column_weights[col])
         for col, header in enumerate(headers):
-            ttk.Label(scrollable_frame, text=header, font=("Arial", 8, "bold"), 
-                     borderwidth=1, relief=tk.SOLID, padding=2).grid(
-                row=11, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+            # 컬럼별로 다른 padx 설정: 첫 번째는 더 넓게, 마지막은 더 좁게
+            if col == 0:  # 첫 번째 컬럼 (Lot Codes)
+                header_padx = 5
+            elif col == 5:  # 마지막 컬럼 (Initial)
+                header_padx = 1
+            else:
+                header_padx = 3
+            # 줄바꿈 처리
+            if '\n' in header:
+                lines = header.split('\n')
+                header_label = tk.Label(header_frame, text='\n'.join(lines), font=("Arial", 9, "bold"), 
+                         relief=tk.SOLID, borderwidth=1, padx=header_padx, pady=5, justify=tk.CENTER)
+            else:
+                header_label = tk.Label(header_frame, text=header, font=("Arial", 9, "bold"), 
+                         relief=tk.SOLID, borderwidth=1, padx=header_padx, pady=5)
+            header_label.grid(row=0, column=col, sticky=(tk.W, tk.E, tk.N, tk.S), padx=1, ipadx=0)
         
-        # 테이블 행 (10개 행)
+        # 테이블 행 (15개 행) - 헤더와 같은 프레임 구조 사용
         self.table_data_inline = []
         header_keys = ['bulk_plastic_bag_lot_codes', 'bulk_bag_qty', 'pallet_num', 'total_kg', 'notes', 'initial']
-        for row in range(10):
+        for row in range(15):
+            row_frame = ttk.Frame(scrollable_frame)
+            row_frame.grid(row=13+row, column=0, columnspan=6, sticky=(tk.W, tk.E), padx=5, pady=1)
+            # 행 프레임의 컬럼 가중치 설정 (PDF 비율과 동일하게)
+            for col in range(6):
+                row_frame.columnconfigure(col, weight=column_weights[col])
             row_data = {}
             for col, key in enumerate(header_keys):
                 var = tk.StringVar()
-                entry = ttk.Entry(scrollable_frame, textvariable=var, width=10)
-                entry.grid(row=12+row, column=col, sticky=(tk.W, tk.E), padx=1, pady=1)
+                # 컬럼별로 다른 width 설정 (문자 단위) - 직접 조절 가능
+                if col == 0:  # 첫 번째 컬럼 (Lot Codes) - 더 넓게
+                    entry_width = 25
+                elif col == 1:  # Bulk Bag QTY
+                    entry_width = 13
+                elif col == 2:  # Pallet #
+                    entry_width = 12
+                elif col == 3:  # Total KG
+                    entry_width = 12
+                elif col == 4:  # Notes
+                    entry_width = 13
+                else:  # Initial (col == 5) - 더 좁게
+                    entry_width = 8
+                entry = tk.Entry(row_frame, textvariable=var, relief=tk.SOLID, borderwidth=1, 
+                               font=("Arial", 9), width=entry_width)
+                entry.grid(row=0, column=col, sticky=(tk.W, tk.E, tk.N, tk.S), padx=1)
                 row_data[key] = var
                 
                 # 첫 번째 행의 Lot code와 Bag QTY 변경 시 다음 행들에 복사 (비어있을 때만)
                 if row == 0 and (key == 'bulk_plastic_bag_lot_codes' or key == 'bulk_bag_qty'):
                     var.trace_add('write', lambda name, index, mode, var=var, key=key, row_idx=row: self.copy_to_next_rows(key, var, row_idx))
                 
-                # Total KG 입력 시 Pallet 번호 자동 증가
+                # Total KG 입력 시 Pallet 번호 자동 증가 및 자동 저장
                 if key == 'total_kg':
-                    var.trace_add('write', lambda name, index, mode, var=var, row_idx=row: self.auto_increment_pallet(row_idx))
+                    def on_total_kg_change(name, index, mode, var=var, row_idx=row):
+                        self.auto_increment_pallet(row_idx)
+                        # 자동 저장 (약간의 지연을 두어 연속 입력 시 과도한 저장 방지)
+                        trigger_auto_save()
+                    var.trace_add('write', on_total_kg_change)
+                
+                # 다른 필드 변경 시에도 자동 저장 (Total KG 제외)
+                if key != 'total_kg':
+                    var.trace_add('write', trigger_auto_save)
             
             self.table_data_inline.append(row_data)
         self.form_data_inline['production_table'] = self.table_data_inline
-        
-        # Production Notes
-        ttk.Label(scrollable_frame, text="Production Notes:").grid(row=22, column=0, sticky=(tk.W, tk.N), padx=5, pady=2)
-        notes_text = tk.Text(scrollable_frame, height=4, width=30)
-        notes_text.grid(row=22, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
-        self.form_data_inline['production_notes'] = notes_text
-        
-        # Verified by QA
-        ttk.Label(scrollable_frame, text="Verified by QA:").grid(row=23, column=0, sticky=tk.W, padx=5, pady=2)
-        qa_var = tk.StringVar()
-        qa_entry = ttk.Entry(scrollable_frame, textvariable=qa_var, width=20)
-        qa_entry.grid(row=23, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
-        self.form_data_inline['verified_by_qa'] = qa_var
-        
-        # Supervisor Name & Signature
-        ttk.Label(scrollable_frame, text="Supervisor Signature:").grid(row=24, column=0, sticky=tk.W, padx=5, pady=2)
-        supervisor_sig_var = tk.StringVar()
-        supervisor_sig_entry = ttk.Entry(scrollable_frame, textvariable=supervisor_sig_var, width=20)
-        supervisor_sig_entry.grid(row=24, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
-        self.form_data_inline['supervisor_signature'] = supervisor_sig_var
         
         # 그리드 가중치 설정
         scrollable_frame.columnconfigure(1, weight=1)
@@ -1471,18 +1791,14 @@ class LabelPrinterGUI:
             'quantity': self.form_data_inline['quantity'].get(),
             'parchment_reuse': bool(self.form_data_inline['parchment_reuse'].get()),
             'parchment_lot_code': self.form_data_inline['parchment_lot_code'].get(),
+            'no_choco_coating': bool(self.form_data_inline['no_choco_coating'].get()),
             'quality_checked': self.form_data_inline['quality_checked'].get(),
-            'verified_by_qa': self.form_data_inline['verified_by_qa'].get(),
-            'supervisor_signature': self.form_data_inline['supervisor_signature'].get(),
+            'verified_by_qa': "",
+            'supervisor_signature': "",
             'sign_date': self.form_data_inline['date'].get(),
-            'copies': self.bulk_copies_var.get() if hasattr(self, 'bulk_copies_var') else str(self.default_bulk_copies)
+            'copies': self.bulk_copies_var.get() if hasattr(self, 'bulk_copies_var') else str(self.default_bulk_copies),
+            'production_notes': ""
         }
-        
-        notes_widget = self.form_data_inline['production_notes']
-        if isinstance(notes_widget, tk.Text):
-            data['production_notes'] = notes_widget.get('1.0', tk.END).strip()
-        else:
-            data['production_notes'] = ""
         
         table_entries = []
         for row_vars in self.table_data_inline:
@@ -3136,7 +3452,110 @@ class LabelPrinterGUI:
             print(f"양식 데이터 저장 완료: {len(self.production_records)}개 기록")
         except Exception as e:
             print(f"양식 데이터 저장 실패: {e}")
-            messagebox.showerror("오류", f"양식 데이터 저장 실패: {e}")
+    
+    def load_saved_bulk_sheet(self):
+        """저장된 양식 목록을 보여주고 선택해서 불러오기"""
+        if not self.production_records:
+            messagebox.showinfo("알림", "저장된 양식이 없습니다.")
+            return
+        
+        # 새 창 열기
+        load_window = tk.Toplevel(self.root)
+        load_window.title("저장된 양식 불러오기")
+        load_window.geometry("600x400")
+        
+        # 제목 라벨
+        title_label = ttk.Label(load_window, text="저장된 양식 목록", font=("Arial", 12, "bold"))
+        title_label.pack(pady=10)
+        
+        # 리스트박스와 스크롤바
+        list_frame = ttk.Frame(load_window)
+        list_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=5)
+        
+        scrollbar = ttk.Scrollbar(list_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        listbox = tk.Listbox(list_frame, yscrollcommand=scrollbar.set, font=("Arial", 10))
+        listbox.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=listbox.yview)
+        
+        # 제목 생성 및 리스트에 추가 (date + product name + shift)
+        for idx, record in enumerate(self.production_records):
+            date = record.get('date', '날짜 없음')
+            product = record.get('product_name', '제품명 없음')
+            shift = record.get('shift', 'Shift 없음')
+            title = f"{date} - {product} - {shift}"
+            listbox.insert(tk.END, title)
+        
+        # 버튼 프레임
+        button_frame = ttk.Frame(load_window)
+        button_frame.pack(pady=10)
+        
+        def load_selected():
+            """선택한 양식 불러오기"""
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("경고", "양식을 선택해주세요.")
+                return
+            
+            selected_idx = selection[0]
+            record = self.production_records[selected_idx]
+            
+            # 폼에 데이터 채우기
+            try:
+                # 기본 필드 채우기
+                if 'date' in record:
+                    self.form_data_inline['date'].set(record['date'])
+                if 'shift' in record:
+                    self.form_data_inline['shift'].set(record['shift'])
+                if 'supervisor_name' in record:
+                    self.form_data_inline['supervisor_name'].set(record['supervisor_name'])
+                if 'employee_name' in record:
+                    self.form_data_inline['employee_name'].set(record['employee_name'])
+                if 'product_name' in record:
+                    self.form_data_inline['product_name'].set(record['product_name'])
+                if 'bulk_lot_code' in record:
+                    self.form_data_inline['bulk_lot_code'].set(record['bulk_lot_code'])
+                if 'parchment_reuse' in record:
+                    self.form_data_inline['parchment_reuse'].set(record['parchment_reuse'])
+                if 'parchment_lot_code' in record:
+                    self.form_data_inline['parchment_lot_code'].set(record['parchment_lot_code'])
+                if 'no_choco_coating' in record:
+                    self.form_data_inline['no_choco_coating'].set(record['no_choco_coating'])
+                if 'quantity' in record:
+                    self.form_data_inline['quantity'].set(record['quantity'])
+                if 'quality_checked' in record:
+                    self.form_data_inline['quality_checked'].set(record['quality_checked'])
+                
+                # production_table은 불러오지 않음
+                
+                messagebox.showinfo("성공", "양식이 불러와졌습니다.")
+                load_window.destroy()
+            except Exception as e:
+                messagebox.showerror("오류", f"양식 불러오기 실패: {e}")
+        
+        def delete_selected():
+            """선택한 양식 삭제"""
+            selection = listbox.curselection()
+            if not selection:
+                messagebox.showwarning("경고", "양식을 선택해주세요.")
+                return
+            
+            if messagebox.askyesno("확인", "선택한 양식을 삭제하시겠습니까?"):
+                selected_idx = selection[0]
+                self.production_records.pop(selected_idx)
+                self.save_production_records()
+                listbox.delete(selection[0])
+                messagebox.showinfo("성공", "양식이 삭제되었습니다.")
+        
+        ttk.Button(button_frame, text="불러오기", command=load_selected).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="삭제", command=delete_selected).pack(side=tk.LEFT, padx=5)
+        ttk.Button(button_frame, text="취소", command=load_window.destroy).pack(side=tk.LEFT, padx=5)
+        
+        # 더블클릭으로 불러오기
+        def on_double_click(event):
+            load_selected()
+        listbox.bind('<Double-Button-1>', on_double_click)
 
     def on_closing(self):
         """프로그램 종료 시"""
@@ -3148,6 +3567,27 @@ class LabelPrinterGUI:
         self.root.destroy()
 
 def main():
+    # 만료일 체크 (2026-06-30까지)
+    try:
+        expiry_date = datetime(2026, 6, 30, 23, 59, 59)
+        current_date = datetime.now()
+        
+        if current_date > expiry_date:
+            root = tk.Tk()
+            root.withdraw()  # 메인 윈도우 숨기기
+            messagebox.showerror(
+                "원인 모를 오류가 발생했습니다.",
+            )
+            root.destroy()
+            return
+    except Exception as e:
+        # 날짜 체크 중 오류 발생 시에도 프로그램 종료
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showerror("오류", f"프로그램 초기화 중 오류가 발생했습니다: {e}")
+        root.destroy()
+        return
+    
     root = tk.Tk()
     app = LabelPrinterGUI(root)
     

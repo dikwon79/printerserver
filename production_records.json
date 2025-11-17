@@ -1,7 +1,7 @@
 [
   {
-    "timestamp": "2025-11-02 14:55:41",
-    "date": "2025-11-02",
+    "timestamp": "2025-11-17 15:14:45",
+    "date": "2025-11-17",
     "shift": "AM",
     "supervisor_name": "",
     "employee_name": "",
@@ -9,6 +9,7 @@
     "bulk_lot_code": "",
     "parchment_reuse": false,
     "parchment_lot_code": "",
+    "no_choco_coating": false,
     "quantity": "",
     "quality_checked": "",
     "production_table": [
@@ -16,7 +17,7 @@
         "bulk_plastic_bag_lot_codes": "",
         "bulk_bag_qty": "",
         "pallet_num": "",
-        "total_kg": "500",
+        "total_kg": "",
         "notes": "",
         "initial": ""
       },
@@ -24,7 +25,47 @@
         "bulk_plastic_bag_lot_codes": "",
         "bulk_bag_qty": "",
         "pallet_num": "",
-        "total_kg": "500",
+        "total_kg": "",
+        "notes": "",
+        "initial": ""
+      },
+      {
+        "bulk_plastic_bag_lot_codes": "",
+        "bulk_bag_qty": "",
+        "pallet_num": "",
+        "total_kg": "",
+        "notes": "",
+        "initial": ""
+      },
+      {
+        "bulk_plastic_bag_lot_codes": "",
+        "bulk_bag_qty": "",
+        "pallet_num": "",
+        "total_kg": "",
+        "notes": "",
+        "initial": ""
+      },
+      {
+        "bulk_plastic_bag_lot_codes": "",
+        "bulk_bag_qty": "",
+        "pallet_num": "",
+        "total_kg": "",
+        "notes": "",
+        "initial": ""
+      },
+      {
+        "bulk_plastic_bag_lot_codes": "",
+        "bulk_bag_qty": "",
+        "pallet_num": "",
+        "total_kg": "",
+        "notes": "",
+        "initial": ""
+      },
+      {
+        "bulk_plastic_bag_lot_codes": "",
+        "bulk_bag_qty": "",
+        "pallet_num": "",
+        "total_kg": "",
         "notes": "",
         "initial": ""
       },
